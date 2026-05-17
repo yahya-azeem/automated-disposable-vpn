@@ -1,0 +1,22 @@
+{
+  "listen_address": "0.0.0.0:{{ endpoint_port }}",
+  "tunnel_mode": "system-wide",
+  "tunnel_subnet": "{{ tunnel_subnet }}",
+  "tunnel_ip": "{{ tunnel_ip }}",
+  "dns": {
+    "custom_upstream": [
+      "{{ dns_upstream_1 }}",
+      "{{ dns_upstream_2 }}"
+    ],
+    "listen_ip": "{{ tunnel_ip }}"
+  },
+  "security": {
+    "tls_cert_path": "/etc/trusttunnel/server.crt",
+    "tls_key_path": "/etc/trusttunnel/server.key",
+    "cipher_suite": "CHACHA20-POLY1305"
+  },
+  "logging": {
+    "level": "info",
+    "file": "/var/log/trusttunnel.log"
+  }
+}

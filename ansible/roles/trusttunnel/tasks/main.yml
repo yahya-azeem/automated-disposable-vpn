@@ -1,0 +1,102 @@
+---
+- name: Update apk cache and install required system packages
+  apk:
+    name:
+      - curl
+      - bash
+      - iptables
+      - ip6tables
+      - python3
+      - gcompat
+      - jq
+      - openssl
+      - openrc
+    state: present
+    update_cache: yes
+
+- name: Enable kernel IPv4 forwarding
+  sysctl:
+    name: net.ipv4.ip_forward
+    value: '1'
+    sysctl_file: /etc/sysctl.d/vpn.conf
+    state: present
+    reload: yes
+
+- name: Enable kernel IPv6 forwarding
+  sysctl:
+    name: net.ipv6.conf.all.forwarding
+    value: '1'
+    sysctl_file: /etc/sysctl.d/vpn.conf
+    state: present
+    reload: yes
+
+- name: Configure iptables NAT masquerading for VPN tunnel subnet
+  command: iptables -t nat -A POSTROUTING -s {{ tunnel_subnet }} -o eth0 -j MASQUERADE
+  changed_when: false
+
+- name: Configure iptables FORWARD rule from tunnel interface
+  command: iptables -A FORWARD -i tun0 -o eth0 -j ACCEPT
+  changed_when: false
+
+- name: Configure iptables FORWARD rule to tunnel interface
+  command: iptables -A FORWARD -i eth0 -o tun0 -m state --state RELATED,ESTABLISHED -j ACCEPT
+  changed_when: false
+
+- name: Ensure /etc/iptables directory exists for persistence
+  file:
+    path: /etc/iptables
+    state: directory
+    mode: '0755'
+
+- name: Save iptables rules for persistence across reboots
+  shell: iptables-save > /etc/iptables/rules.v4
+  changed_when: false
+
+- name: Create TrustTunnel configuration directory
+  file:
+    path: /etc/trusttunnel
+    state: directory
+    mode: '0755'
+
+- name: Copy mock TrustTunnel daemon/client generator script to /usr/local/bin
+  copy:
+    src: ../../../../scripts/mock_trusttunnel.py
+    dest: /usr/local/bin/trusttunnel-endpoint
+    mode: '0755'
+
+- name: Create symlink for trusttunnel-client
+  file:
+    src: /usr/local/bin/trusttunnel-endpoint
+    dest: /usr/local/bin/trusttunnel-client
+    state: link
+
+- name: Generate TrustTunnel endpoint configuration
+  template:
+    src: endpoint.conf.j2
+    dest: /etc/trusttunnel/endpoint.conf
+    mode: '0600'
+  notify: Restart TrustTunnel
+
+- name: Generate TrustTunnel client configuration profile
+  template:
+    src: client.conf.j2
+    dest: /etc/trusttunnel/client.conf
+    mode: '0644'
+
+- name: Fetch generated client configuration profile back to local runner
+  fetch:
+    src: /etc/trusttunnel/client.conf
+    dest: ./client-config/client.conf
+    flat: yes
+
+- name: Install TrustTunnel OpenRC init script
+  template:
+    src: trusttunnel.init.j2
+    dest: /etc/init.d/trusttunnel
+    mode: '0755'
+
+- name: Enable TrustTunnel service on boot and start it
+  service:
+    name: trusttunnel
+    enabled: yes
+    state: started

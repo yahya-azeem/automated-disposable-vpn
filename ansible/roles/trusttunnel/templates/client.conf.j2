@@ -1,0 +1,19 @@
+# TrustTunnel Client Configuration Profile
+# Import this file directly into your WireGuard, OpenVPN, or TrustTunnel iOS App.
+
+[Interface]
+PrivateKey = <CLIENT_PRIVATE_KEY_PLACEHOLDER>
+Address = {{ client_ip }}/24
+DNS = {{ tunnel_ip }}
+TunnelMode = system-wide
+
+[Peer]
+PublicKey = <SERVER_PUBLIC_KEY_PLACEHOLDER>
+Endpoint = {{ public_ip }}:{{ endpoint_port }}
+AllowedIPs = 0.0.0.0/0
+PersistentKeepalive = 25
+
+[CustomDNSUpstream]
+Primary = {{ dns_upstream_1 }}
+Secondary = {{ dns_upstream_2 }}
+StrictTunnelRouting = true

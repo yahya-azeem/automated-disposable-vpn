@@ -1,0 +1,5 @@
+---
+- name: Restart TrustTunnel
+  service:
+    name: trusttunnel
+    state: restarted

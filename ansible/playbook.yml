@@ -1,0 +1,16 @@
+---
+- name: Provision TrustTunnel VPN Endpoint on Alpine Linux
+  hosts: all
+  become: yes
+  gather_facts: yes
+  vars:
+    public_ip: "{{ ansible_host }}"
+    endpoint_port: 443
+    tunnel_subnet: "10.8.0.0/24"
+    tunnel_ip: "10.8.0.1"
+    client_ip: "10.8.0.2"
+    dns_upstream_1: "1.1.1.1"
+    dns_upstream_2: "8.8.8.8"
+
+  roles:
+    - trusttunnel
