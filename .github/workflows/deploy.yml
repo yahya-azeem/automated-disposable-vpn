@@ -22,13 +22,22 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: us-east-1
 
+      - name: Setup SSH Key
+        id: ssh_key
+        run: |
+          mkdir -p ~/.ssh
+          ssh-keygen -t ed25519 -f ~/.ssh/trusttunnel-key -N "" -q
+          PUB_KEY=$(cat ~/.ssh/trusttunnel-key.pub)
+          echo "pub_key=$PUB_KEY" >> $GITHUB_OUTPUT
+          chmod 600 ~/.ssh/trusttunnel-key
+
       - name: Terraform Init
         working-directory: ./terraform
         run: terraform init
 
       - name: Terraform Apply
         working-directory: ./terraform
-        run: terraform apply -auto-approve
+        run: terraform apply -var="local_mode=false" -var="ssh_public_key=${{ steps.ssh_key.outputs.pub_key }}" -auto-approve
         
       - name: Get Instance IP
         id: get_ip
@@ -44,13 +53,7 @@ jobs:
           
       - name: Install Ansible
         run: pip install ansible
-        
-      - name: Setup SSH Key
-        run: |
-          mkdir -p ~/.ssh
-          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/trusttunnel-key
-          chmod 600 ~/.ssh/trusttunnel-key
-          
+
       - name: Run Ansible Playbook
         working-directory: ./ansible
         env:
