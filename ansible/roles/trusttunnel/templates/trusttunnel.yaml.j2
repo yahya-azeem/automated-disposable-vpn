@@ -1,0 +1,10 @@
+bind: "0.0.0.0:443"
+tls:
+  cert: "/etc/trusttunnel/server.crt"
+  key: "/etc/trusttunnel/server.key"
+network:
+  ipv4_range: "10.8.0.0/24"
+  dns: "10.8.0.1"
+users:
+  - id: "client1"
+    secret: "auto-generated-secret-{{ server_public_ip }}"

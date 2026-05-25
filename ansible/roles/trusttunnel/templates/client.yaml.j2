@@ -1,0 +1,9 @@
+endpoints:
+  - "{{ public_ip_fetch.content }}:443"
+tls:
+  server_name: "trusttunnel.local"
+  fingerprint: "{{ tls_fingerprint.stdout }}"
+auth:
+  id: "client1"
+  secret: "auto-generated-secret-{{ public_ip_fetch.content }}"
+dns: "10.8.0.1"

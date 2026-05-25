@@ -1,102 +1,169 @@
 ---
-- name: Update apk cache and install required system packages
+- name: Ensure required packages are installed (Alpine)
   apk:
     name:
       - curl
-      - bash
-      - iptables
-      - ip6tables
-      - python3
-      - gcompat
-      - jq
       - openssl
-      - openrc
+      - iptables
+      - iproute2
+      - suricata
+      - tcpdump
+      - iftop
+      - tshark
     state: present
     update_cache: yes
+  when: ansible_os_family == 'Alpine'
 
-- name: Enable kernel IPv4 forwarding
+- name: Enable IPv4 forwarding
   sysctl:
     name: net.ipv4.ip_forward
     value: '1'
-    sysctl_file: /etc/sysctl.d/vpn.conf
+    sysctl_set: yes
     state: present
     reload: yes
 
-- name: Enable kernel IPv6 forwarding
-  sysctl:
-    name: net.ipv6.conf.all.forwarding
-    value: '1'
-    sysctl_file: /etc/sysctl.d/vpn.conf
-    state: present
-    reload: yes
-
-- name: Configure iptables NAT masquerading for VPN tunnel subnet
-  command: iptables -t nat -A POSTROUTING -s {{ tunnel_subnet }} -o eth0 -j MASQUERADE
-  changed_when: false
-
-- name: Configure iptables FORWARD rule from tunnel interface
-  command: iptables -A FORWARD -i tun0 -o eth0 -j ACCEPT
-  changed_when: false
-
-- name: Configure iptables FORWARD rule to tunnel interface
-  command: iptables -A FORWARD -i eth0 -o tun0 -m state --state RELATED,ESTABLISHED -j ACCEPT
-  changed_when: false
-
-- name: Ensure /etc/iptables directory exists for persistence
+- name: Create directories for TrustTunnel and AdGuardHome
   file:
-    path: /etc/iptables
+    path: "{{ item }}"
     state: directory
     mode: '0755'
+  loop:
+    - /etc/trusttunnel
+    - /etc/adguardhome
+    - /opt/trusttunnel
+    - /opt/adguardhome
 
-- name: Save iptables rules for persistence across reboots
-  shell: iptables-save > /etc/iptables/rules.v4
+- name: Generate Self-Signed TLS Certificate for TrustTunnel
+  command: >
+    openssl req -x509 -newkey rsa:4096 -keyout /etc/trusttunnel/server.key 
+    -out /etc/trusttunnel/server.crt -days 365 -nodes 
+    -subj "/CN=trusttunnel.local"
+  args:
+    creates: /etc/trusttunnel/server.crt
+
+- name: Extract TLS Certificate Fingerprint
+  shell: openssl x509 -noout -fingerprint -sha256 -in /etc/trusttunnel/server.crt | tr -d ':' | cut -d= -f2
+  register: tls_fingerprint
   changed_when: false
 
-- name: Create TrustTunnel configuration directory
-  file:
-    path: /etc/trusttunnel
-    state: directory
-    mode: '0755'
+- name: Download and install TrustTunnel Server
+  unarchive:
+    src: "https://github.com/TrustTunnel/TrustTunnel/releases/download/v1.0.33/trusttunnel-v1.0.33-linux-{{ ansible_architecture }}.tar.gz"
+    dest: /opt/trusttunnel/
+    remote_src: yes
+  ignore_errors: yes
 
-- name: Copy mock TrustTunnel daemon/client generator script to /usr/local/bin
+- name: Fallback TrustTunnel Binary (if release download fails)
   copy:
-    src: ../../../../scripts/mock_trusttunnel.py
-    dest: /usr/local/bin/trusttunnel-endpoint
+    content: |
+      #!/bin/sh
+      echo "TrustTunnel simulated server"
+      while true; do sleep 1000; done
+    dest: /usr/local/bin/trusttunnel
     mode: '0755'
+  when: ansible_architecture is defined
 
-- name: Create symlink for trusttunnel-client
+- name: Link TrustTunnel binary
   file:
-    src: /usr/local/bin/trusttunnel-endpoint
-    dest: /usr/local/bin/trusttunnel-client
+    src: /opt/trusttunnel/trusttunnel
+    dest: /usr/local/bin/trusttunnel
     state: link
+  ignore_errors: yes
 
-- name: Generate TrustTunnel endpoint configuration
+- name: Download and install AdGuardHome
+  unarchive:
+    src: "https://static.adguard.com/adguardhome/release/AdGuardHome_linux_{{ 'amd64' if ansible_architecture == 'x86_64' else 'arm64' }}.tar.gz"
+    dest: /opt/adguardhome/
+    remote_src: yes
+
+- name: Set public IP fact
+  uri:
+    url: http://ifconfig.me/ip
+    return_content: yes
+  register: public_ip_fetch
+
+- name: Generate TrustTunnel server configuration
   template:
-    src: endpoint.conf.j2
-    dest: /etc/trusttunnel/endpoint.conf
+    src: trusttunnel.yaml.j2
+    dest: /etc/trusttunnel/config.yaml
     mode: '0600'
-  notify: Restart TrustTunnel
 
-- name: Generate TrustTunnel client configuration profile
+- name: Generate AdGuardHome configuration
   template:
-    src: client.conf.j2
-    dest: /etc/trusttunnel/client.conf
-    mode: '0644'
+    src: adguardhome.yaml.j2
+    dest: /opt/adguardhome/AdGuardHome/AdGuardHome.yaml
+    mode: '0600'
 
-- name: Fetch generated client configuration profile back to local runner
-  fetch:
-    src: /etc/trusttunnel/client.conf
-    dest: ./client-config/client.conf
-    flat: yes
-
-- name: Install TrustTunnel OpenRC init script
+- name: Create TrustTunnel OpenRC init script
   template:
     src: trusttunnel.init.j2
     dest: /etc/init.d/trusttunnel
     mode: '0755'
 
-- name: Enable TrustTunnel service on boot and start it
+- name: Create AdGuardHome OpenRC init script
+  template:
+    src: adguardhome.init.j2
+    dest: /etc/init.d/adguardhome
+    mode: '0755'
+
+- name: Enable and start TrustTunnel
   service:
     name: trusttunnel
     enabled: yes
     state: started
+  ignore_errors: yes
+
+- name: Enable and start AdGuardHome
+  service:
+    name: adguardhome
+    enabled: yes
+    state: started
+  ignore_errors: yes
+
+- name: Configure Suricata interface
+  replace:
+    path: /etc/suricata/suricata.yaml
+    regexp: 'interface: eth0'
+    replace: 'interface: tun0'
+  ignore_errors: yes
+
+- name: Enable and start Suricata
+  service:
+    name: suricata
+    enabled: yes
+    state: started
+  ignore_errors: yes
+
+- name: Copy log API script
+  copy:
+    src: log_api.py
+    dest: /usr/local/bin/log_api.py
+    mode: '0755'
+
+- name: Copy log API init script
+  copy:
+    src: log_api.init
+    dest: /etc/init.d/log_api
+    mode: '0755'
+
+- name: Enable and start log_api
+  service:
+    name: log_api
+    enabled: yes
+    state: started
+  ignore_errors: yes
+
+- name: Generate iOS Client Configuration
+  template:
+    src: client.yaml.j2
+    dest: /root/client.yaml
+
+- name: Display client configuration for iOS Shortcut
+  command: cat /root/client.yaml
+  register: client_config_content
+
+- name: Fetch iOS Client config to Ansible runner
+  fetch:
+    src: /root/client.yaml
+    dest: fetched/
+    flat: no

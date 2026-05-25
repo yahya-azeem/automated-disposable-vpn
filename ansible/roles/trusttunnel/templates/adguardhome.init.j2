@@ -1,0 +1,14 @@
+#!/sbin/openrc-run
+
+name="AdGuard Home"
+description="Network-wide ads & trackers blocking DNS server"
+
+command="/opt/adguardhome/AdGuardHome/AdGuardHome"
+command_args="-c /opt/adguardhome/AdGuardHome/AdGuardHome.yaml -w /opt/adguardhome/AdGuardHome"
+command_background=true
+pidfile="/run/adguardhome.pid"
+
+depend() {
+    need net
+    after firewall
+}

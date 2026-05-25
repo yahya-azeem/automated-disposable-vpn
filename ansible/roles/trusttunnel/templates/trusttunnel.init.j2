@@ -1,18 +1,14 @@
 #!/sbin/openrc-run
 
-name="trusttunnel"
-description="TrustTunnel VPN Endpoint Daemon"
-command="/usr/local/bin/trusttunnel-endpoint"
-command_args="--config /etc/trusttunnel/endpoint.conf --daemon"
-pidfile="/var/run/${name}.pid"
+name="TrustTunnel Server"
+description="AdGuard TrustTunnel VPN Server"
+
+command="/usr/local/bin/trusttunnel"
+command_args="-c /etc/trusttunnel/config.yaml"
 command_background=true
+pidfile="/run/trusttunnel.pid"
 
 depend() {
     need net
     after firewall
-}
-
-start_pre() {
-    checkpath --directory --mode 0755 /etc/trusttunnel
-    checkpath --file --mode 0644 /var/log/trusttunnel.log
 }
