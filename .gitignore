@@ -1,0 +1,14 @@
+# Terraform
+terraform/.terraform/
+terraform/*.tfstate
+terraform/*.tfstate.backup
+terraform/.terraform.lock.hcl
+
+# Ansible
+ansible/trusttunnel-key
+ansible/trusttunnel-key.pub
+ansible/fetched/
+*.retry
+
+# macOS
+.DS_Store

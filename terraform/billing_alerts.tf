@@ -1,5 +1,7 @@
 # AWS Free Tier guardrails: AWS Budgets and CloudWatch billing alarms.
+# Note: Commented out for local testing with Floci because billing APIs are not typically supported in local emulators.
 
+/*
 resource "aws_budgets_budget" "free_tier" {
   name              = "trusttunnel-free-tier-budget"
   budget_type       = "COST"
@@ -40,3 +42,4 @@ resource "aws_cloudwatch_metric_alarm" "billing_alarm" {
     Currency = "USD"
   }
 }
+*/

@@ -1,5 +1,6 @@
 # Remote S3 backend configuration for secure state management and DynamoDB locking.
-# Note: Provide your existing bucket and dynamodb_table names before running in production.
+# Note: Commented out for local testing with Floci. Using local state.
+/*
 terraform {
   backend "s3" {
     bucket         = "my-terraform-state-bucket"
@@ -9,3 +10,4 @@ terraform {
     encrypt        = true
   }
 }
+*/

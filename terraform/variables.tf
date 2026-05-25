@@ -1,3 +1,9 @@
+variable "local_mode" {
+  type        = bool
+  description = "If true, skip AWS EC2 and deploy a local Docker container for testing"
+  default     = false
+}
+
 variable "active_region" {
   type        = string
   description = "The currently active AWS region for the single VPN node. Allowed values: us-east-1, eu-central-1, ap-northeast-1."
@@ -11,7 +17,7 @@ variable "active_region" {
 variable "instance_type" {
   type        = string
   description = "The EC2 instance type. Must be Free Tier eligible (e.g., t4g.micro for arm64 or t3.micro for x86_64)."
-  default     = "t4g.micro"
+  default     = "t2.micro"
 }
 
 variable "allowed_client_ip_range" {

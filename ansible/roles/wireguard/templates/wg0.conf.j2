@@ -1,0 +1,13 @@
+[Interface]
+Address = 10.8.0.1/24
+ListenPort = 443
+PrivateKey = {{ server_private_key }}
+
+# NAT and IP Forwarding
+PostUp = iptables -A FORWARD -i wg0 -j ACCEPT; iptables -t nat -A POSTROUTING -o eth0 -j MASQUERADE
+PostDown = iptables -D FORWARD -i wg0 -j ACCEPT; iptables -t nat -D POSTROUTING -o eth0 -j MASQUERADE
+
+[Peer]
+# iOS Client
+PublicKey = {{ client_public_key }}
+AllowedIPs = 10.8.0.2/32

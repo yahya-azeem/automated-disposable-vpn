@@ -1,0 +1,19 @@
+---
+- name: restart wg-quick
+  service:
+    name: wg-quick@wg0
+    state: restarted
+  when: ansible_os_family == 'Alpine' and ansible_virtualization_type != 'docker'
+  ignore_errors: yes
+
+- name: restart wg-quick systemd
+  systemd:
+    name: wg-quick@wg0
+    state: restarted
+  when: ansible_os_family != 'Alpine' and ansible_virtualization_type != 'docker'
+  ignore_errors: yes
+
+- name: restart wg-quick docker
+  command: wg-quick down wg0; wg-quick up wg0
+  when: ansible_virtualization_type == 'docker'
+  ignore_errors: yes

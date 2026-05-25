@@ -1,0 +1,81 @@
+name: Deploy TrustTunnel VPN
+
+on:
+  repository_dispatch:
+    types: [deploy_vpn]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-east-1
+
+      - name: Terraform Init
+        working-directory: ./terraform
+        run: terraform init
+
+      - name: Terraform Apply
+        working-directory: ./terraform
+        run: terraform apply -auto-approve
+        
+      - name: Get Instance IP
+        id: get_ip
+        working-directory: ./terraform
+        run: |
+          PUBLIC_IP=$(terraform output -raw public_ip)
+          echo "public_ip=$PUBLIC_IP" >> $GITHUB_OUTPUT
+          
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          
+      - name: Install Ansible
+        run: pip install ansible
+        
+      - name: Setup SSH Key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/trusttunnel-key
+          chmod 600 ~/.ssh/trusttunnel-key
+          
+      - name: Run Ansible Playbook
+        working-directory: ./ansible
+        env:
+          ANSIBLE_HOST_KEY_CHECKING: "False"
+        run: |
+          # Create a dynamic inventory file for the newly provisioned instance
+          cat <<EOF > inventory/aws.yml
+          all:
+            hosts:
+              vpn_node:
+                ansible_connection: ssh
+                ansible_host: ${{ steps.get_ip.outputs.public_ip }}
+                ansible_user: root
+                ansible_ssh_private_key_file: ~/.ssh/trusttunnel-key
+                ansible_ssh_common_args: '-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null'
+          EOF
+          
+          # Wait for SSH to be ready
+          sleep 15
+          
+          ansible-playbook -i inventory/aws.yml site.yml
+          
+      - name: Archive WireGuard Client Config
+        uses: actions/upload-artifact@v4
+        with:
+          name: TrustTunnel-Client-Config
+          path: ansible/fetched/vpn_node/root/client.conf
+          retention-days: 1

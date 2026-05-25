@@ -1,3 +1,9 @@
+variable "local_mode" {
+  type        = bool
+  description = "If true, bypass AWS and deploy a local Docker container for testing"
+  default     = false
+}
+
 variable "region" {
   type        = string
   description = "The AWS region for this specific module instance."

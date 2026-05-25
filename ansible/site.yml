@@ -1,0 +1,6 @@
+---
+- name: Provision TrustTunnel VPN Node
+  hosts: all
+  become: yes
+  roles:
+    - wireguard
