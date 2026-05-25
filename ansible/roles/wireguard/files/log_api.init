@@ -1,0 +1,9 @@
+#!/sbin/openrc-run
+
+name="TrustTunnel Log API"
+description="HTTP Server for Suricata Logs over Wireguard"
+
+command="/usr/bin/python3"
+command_args="/usr/local/bin/log_api.py"
+command_background=true
+pidfile="/run/log_api.pid"

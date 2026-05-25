@@ -5,6 +5,10 @@
       - wireguard-tools
       - iptables
       - iproute2
+      - suricata
+      - tcpdump
+      - iftop
+      - tshark
     state: present
     update_cache: yes
   when: ansible_os_family == 'Alpine'
@@ -123,4 +127,40 @@
     state: started
     daemon_reload: yes
   when: ansible_os_family != 'Alpine' and ansible_virtualization_type != 'docker'
+  ignore_errors: yes
+
+- name: Copy log API script
+  copy:
+    src: log_api.py
+    dest: /usr/local/bin/log_api.py
+    mode: '0755'
+
+- name: Copy log API init script
+  copy:
+    src: log_api.init
+    dest: /etc/init.d/log_api
+    mode: '0755'
+  when: ansible_os_family == 'Alpine'
+
+- name: Configure Suricata interface
+  replace:
+    path: /etc/suricata/suricata.yaml
+    regexp: 'interface: eth0'
+    replace: 'interface: wg0'
+  ignore_errors: yes
+
+- name: Enable suricata service (Alpine OpenRC)
+  service:
+    name: suricata
+    enabled: yes
+    state: started
+  when: ansible_os_family == 'Alpine' and ansible_virtualization_type != 'docker'
+  ignore_errors: yes
+
+- name: Enable log_api service (Alpine OpenRC)
+  service:
+    name: log_api
+    enabled: yes
+    state: started
+  when: ansible_os_family == 'Alpine' and ansible_virtualization_type != 'docker'
   ignore_errors: yes

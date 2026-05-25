@@ -17,7 +17,7 @@ variable "active_region" {
 variable "instance_type" {
   type        = string
   description = "The EC2 instance type. Must be Free Tier eligible (e.g., t4g.micro for arm64 or t3.micro for x86_64)."
-  default     = "t2.micro"
+  default     = "t3.small"
 }
 
 variable "allowed_client_ip_range" {
