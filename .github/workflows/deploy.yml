@@ -76,9 +76,9 @@ jobs:
           
           ansible-playbook -i inventory/aws.yml site.yml
           
-      - name: Archive WireGuard Client Config
+      - name: Archive TrustTunnel Client Config
         uses: actions/upload-artifact@v4
         with:
           name: TrustTunnel-Client-Config
-          path: ansible/fetched/vpn_node/root/client.conf
+          path: ansible/fetched/vpn_node/root/client.yaml
           retention-days: 1
