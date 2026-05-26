@@ -12,3 +12,7 @@ ansible/fetched/
 
 # macOS
 .DS_Store
+
+# Keys & Secrets
+trusttunnel-key.json
+

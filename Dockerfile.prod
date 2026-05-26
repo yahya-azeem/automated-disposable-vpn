@@ -1,0 +1,36 @@
+FROM alpine:latest
+
+# 1. Install all system dependencies
+RUN apk add --no-cache \
+    curl \
+    openssl \
+    iptables \
+    iproute2 \
+    suricata \
+    tcpdump \
+    iftop \
+    tshark \
+    i2pd \
+    python3
+
+# 2. Download and install TrustTunnel Server
+RUN mkdir -p /opt/trusttunnel && \
+    curl -L "https://github.com/TrustTunnel/TrustTunnel/releases/download/v1.0.33/trusttunnel-v1.0.33-linux-amd64.tar.gz" | tar -xz -C /opt/trusttunnel/ && \
+    ln -s /opt/trusttunnel/trusttunnel /usr/local/bin/trusttunnel
+
+# 3. Download and install AdGuardHome
+RUN mkdir -p /opt/adguardhome && \
+    curl -L "https://static.adguard.com/adguardhome/release/AdGuardHome_linux_amd64.tar.gz" | tar -xz -C /opt/adguardhome/
+
+# 4. Copy log API python script
+COPY ansible/roles/trusttunnel/files/log_api.py /usr/local/bin/log_api.py
+RUN chmod +x /usr/local/bin/log_api.py
+
+# 5. Copy and configure entrypoint
+COPY entrypoint.prod.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
+
+# Expose port 443 (VPN port)
+EXPOSE 443
+
+ENTRYPOINT ["/entrypoint.sh"]

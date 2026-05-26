@@ -1,0 +1,95 @@
+name: Deploy TrustTunnel VPN to GCP
+
+on:
+  repository_dispatch:
+    types: [deploy_vpn_gcp]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Authenticate with GCP
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Configure Docker to use gcloud
+        run: |
+          gcloud auth configure-docker us-central1-docker.pkg.dev --quiet
+
+      - name: Ensure Artifact Registry Repository Exists
+        run: |
+          gcloud artifacts repositories describe trusttunnel-repo --location=us-central1 >/dev/null 2>&1 || \
+          gcloud artifacts repositories create trusttunnel-repo \
+            --repository-format=docker \
+            --location=us-central1 \
+            --description="TrustTunnel Docker Repository"
+
+      - name: Build and Push Docker Image
+        run: |
+          IMAGE_TAG="us-central1-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/trusttunnel-repo/vpn:latest"
+          docker build -t "$IMAGE_TAG" -f Dockerfile.prod .
+          docker push "$IMAGE_TAG"
+
+      - name: Clean Existing Disposable VM
+        run: |
+          if gcloud compute instances describe trusttunnel-vpn-node --zone=us-central1-a >/dev/null 2>&1; then
+            echo "Existing disposable instance found. Deleting..."
+            gcloud compute instances delete trusttunnel-vpn-node --zone=us-central1-a --quiet
+          fi
+
+      - name: Deploy VM with TrustTunnel Container
+        run: |
+          IMAGE_TAG="us-central1-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/trusttunnel-repo/vpn:latest"
+          gcloud compute instances create-with-container trusttunnel-vpn-node \
+            --zone=us-central1-a \
+            --machine-type=e2-micro \
+            --container-image="$IMAGE_TAG" \
+            --container-privileged \
+            --container-restart-policy=always \
+            --container-mount-host-path mount-path=/root,host-path=/var/lib/trusttunnel,mode=rw \
+            --tags=trusttunnel-vpn \
+            --scopes=https://www.googleapis.com/auth/cloud-platform \
+            --boot-disk-size=10GB \
+            --boot-disk-type=pd-standard
+
+      - name: Ensure GCP Firewall Rules are Set
+        run: |
+          if ! gcloud compute firewall-rules describe allow-trusttunnel >/dev/null 2>&1; then
+            echo "Creating firewall rule to allow TrustTunnel port 443..."
+            gcloud compute firewall-rules create allow-trusttunnel \
+              --allow=tcp:443 \
+              --target-tags=trusttunnel-vpn \
+              --description="Allow TrustTunnel VPN TCP port 443"
+          else
+            echo "Firewall rule already exists."
+          fi
+
+      - name: Wait for VPN Initialization
+        run: |
+          echo "Waiting 35 seconds for container setup, IP detection, and client profile generation..."
+          sleep 35
+
+      - name: Retrieve Client Configuration
+        run: |
+          # Use gcloud compute ssh to grab the generated client profile
+          gcloud compute ssh trusttunnel-vpn-node \
+            --zone=us-central1-a \
+            --quiet \
+            --command="sudo cat /var/lib/trusttunnel/client.yaml" > client.yaml
+          
+          echo "Successfully retrieved client.yaml configuration."
+
+      - name: Archive TrustTunnel Client Config
+        uses: actions/upload-artifact@v4
+        with:
+          name: TrustTunnel-Client-Config
+          path: client.yaml
+          retention-days: 1
