@@ -11,7 +11,9 @@ RUN apk add --no-cache \
     iftop \
     tshark \
     i2pd \
-    python3
+    python3 \
+    gcompat \
+    libc6-compat
 
 # 2. Download and install TrustTunnel Server
 RUN mkdir -p /opt/trusttunnel && \
