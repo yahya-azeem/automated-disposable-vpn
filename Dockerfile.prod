@@ -15,7 +15,7 @@ RUN apk add --no-cache \
 
 # 2. Download and install TrustTunnel Server
 RUN mkdir -p /opt/trusttunnel && \
-    curl -L "https://github.com/TrustTunnel/TrustTunnel/releases/download/v1.0.33/trusttunnel-v1.0.33-linux-amd64.tar.gz" | tar -xz -C /opt/trusttunnel/ && \
+    curl -L "https://github.com/TrustTunnel/TrustTunnel/releases/download/v1.0.33/trusttunnel-v1.0.33-linux-x86_64.tar.gz" | tar -xz -C /opt/trusttunnel/ && \
     ln -s /opt/trusttunnel/trusttunnel /usr/local/bin/trusttunnel
 
 # 3. Download and install AdGuardHome
