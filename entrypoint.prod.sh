@@ -62,6 +62,7 @@ cat /root/client.yaml
 # Create AdGuardHome configuration directory and write it
 mkdir -p /opt/adguardhome/AdGuardHome
 cat <<EOF > /opt/adguardhome/AdGuardHome/AdGuardHome.yaml
+schema_version: 34
 bind_host: 127.0.0.1
 bind_port: 3000
 dns:
