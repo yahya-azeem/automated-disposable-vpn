@@ -4,6 +4,34 @@ on:
   repository_dispatch:
     types: [deploy_vpn_gcp]
   workflow_dispatch:
+    inputs:
+      region:
+        description: 'GCP Region'
+        required: false
+        default: 'us-central1'
+      zone:
+        description: 'GCP Zone'
+        required: false
+        default: 'us-central1-a'
+      ddns_hostname:
+        description: 'No-IP DDNS Hostname (e.g. vpn.hopto.org)'
+        required: false
+        default: ''
+      ddns_username:
+        description: 'No-IP Username/Email'
+        required: false
+        default: ''
+      ddns_password:
+        description: 'No-IP Password'
+        required: false
+        default: ''
+
+env:
+  GCP_REGION: ${{ github.event.inputs.region || github.event.client_payload.region || 'us-central1' }}
+  GCP_ZONE: ${{ github.event.inputs.zone || github.event.client_payload.zone || 'us-central1-a' }}
+  DDNS_HOSTNAME: ${{ github.event.inputs.ddns_hostname || github.event.client_payload.ddns_hostname || '' }}
+  DDNS_USERNAME: ${{ github.event.inputs.ddns_username || github.event.client_payload.ddns_username || '' }}
+  DDNS_PASSWORD: ${{ github.event.inputs.ddns_password || github.event.client_payload.ddns_password || '' }}
 
 jobs:
   deploy:
@@ -22,39 +50,40 @@ jobs:
 
       - name: Configure Docker to use gcloud
         run: |
-          gcloud auth configure-docker us-central1-docker.pkg.dev --quiet
+          gcloud auth configure-docker ${{ env.GCP_REGION }}-docker.pkg.dev --quiet
 
       - name: Ensure Artifact Registry Repository Exists
         run: |
-          gcloud artifacts repositories describe trusttunnel-repo --location=us-central1 >/dev/null 2>&1 || \
+          gcloud artifacts repositories describe trusttunnel-repo --location=${{ env.GCP_REGION }} >/dev/null 2>&1 || \
           gcloud artifacts repositories create trusttunnel-repo \
             --repository-format=docker \
-            --location=us-central1 \
+            --location=${{ env.GCP_REGION }} \
             --description="TrustTunnel Docker Repository"
 
       - name: Build and Push Docker Image
         run: |
-          IMAGE_TAG="us-central1-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/trusttunnel-repo/vpn:latest"
+          IMAGE_TAG="${{ env.GCP_REGION }}-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/trusttunnel-repo/vpn:latest"
           docker build -t "$IMAGE_TAG" -f Dockerfile.prod .
           docker push "$IMAGE_TAG"
 
       - name: Clean Existing Disposable VM
         run: |
-          if gcloud compute instances describe trusttunnel-vpn-node --zone=us-central1-a >/dev/null 2>&1; then
+          if gcloud compute instances describe trusttunnel-vpn-node --zone=${{ env.GCP_ZONE }} >/dev/null 2>&1; then
             echo "Existing disposable instance found. Deleting..."
-            gcloud compute instances delete trusttunnel-vpn-node --zone=us-central1-a --quiet
+            gcloud compute instances delete trusttunnel-vpn-node --zone=${{ env.GCP_ZONE }} --quiet
           fi
 
       - name: Deploy VM with TrustTunnel Container
         run: |
-          IMAGE_TAG="us-central1-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/trusttunnel-repo/vpn:latest"
+          IMAGE_TAG="${{ env.GCP_REGION }}-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/trusttunnel-repo/vpn:latest"
           gcloud compute instances create-with-container trusttunnel-vpn-node \
-            --zone=us-central1-a \
+            --zone=${{ env.GCP_ZONE }} \
             --machine-type=e2-micro \
             --container-image="$IMAGE_TAG" \
             --container-privileged \
             --container-restart-policy=always \
             --container-mount-host-path mount-path=/root,host-path=/var/lib/trusttunnel,mode=rw \
+            --container-env=DDNS_HOSTNAME="${{ env.DDNS_HOSTNAME }}",DDNS_USERNAME="${{ env.DDNS_USERNAME }}",DDNS_PASSWORD="${{ env.DDNS_PASSWORD }}" \
             --tags=trusttunnel-vpn \
             --scopes=https://www.googleapis.com/auth/cloud-platform \
             --boot-disk-size=10GB \
@@ -66,7 +95,7 @@ jobs:
             echo "Creating firewall rule to allow TrustTunnel port 443..."
             gcloud compute firewall-rules create allow-trusttunnel \
               --allow=tcp:443 \
-              --target-tags=trusttunnel-vpn \
+               --target-tags=trusttunnel-vpn \
               --description="Allow TrustTunnel VPN TCP port 443"
           else
             echo "Firewall rule already exists."
@@ -81,7 +110,7 @@ jobs:
         run: |
           # Use gcloud compute ssh to grab the generated client profile
           gcloud compute ssh trusttunnel-vpn-node \
-            --zone=us-central1-a \
+            --zone=${{ env.GCP_ZONE }} \
             --quiet \
             --command="sudo cat /var/lib/trusttunnel/client.yaml" > client.yaml
           

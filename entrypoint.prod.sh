@@ -29,6 +29,20 @@ if [ -z "$PUBLIC_IP" ]; then
 fi
 echo "Public IP detected: $PUBLIC_IP"
 
+# Update No-IP Dynamic DNS if configured
+if [ -n "$DDNS_HOSTNAME" ] && [ -n "$DDNS_USERNAME" ] && [ -n "$DDNS_PASSWORD" ]; then
+    echo "Updating No-IP DDNS hostname ${DDNS_HOSTNAME} to ${PUBLIC_IP}..."
+    curl -s -u "${DDNS_USERNAME}:${DDNS_PASSWORD}" "https://dynupdate.no-ip.com/nic/update?hostname=${DDNS_HOSTNAME}&myip=${PUBLIC_IP}" || true
+fi
+
+# Determine certificate and client connection hostname/IP
+CERT_HOSTNAME="trusttunnel.local"
+CLIENT_ADDRESS="${PUBLIC_IP}"
+if [ -n "$DDNS_HOSTNAME" ]; then
+    CERT_HOSTNAME="${DDNS_HOSTNAME}"
+    CLIENT_ADDRESS="${DDNS_HOSTNAME}"
+fi
+
 # 3. Generate configurations dynamically using setup_wizard
 echo "Generating TrustTunnel server configurations and self-signed certificates..."
 mkdir -p /etc/trusttunnel
@@ -37,7 +51,7 @@ cd /etc/trusttunnel
 /opt/trusttunnel/setup_wizard -m non-interactive \
     -a 0.0.0.0:443 \
     -c client1:auto-generated-secret-${PUBLIC_IP} \
-    -n trusttunnel.local \
+    -n ${CERT_HOSTNAME} \
     --cert-type self-signed \
     --lib-settings vpn.toml \
     --hosts-settings hosts.toml
@@ -49,7 +63,7 @@ sed -i 's/allow_private_network_connections = false/allow_private_network_connec
 echo "Exporting client configuration profile..."
 /usr/local/bin/trusttunnel vpn.toml hosts.toml \
     -c client1 \
-    -a ${PUBLIC_IP}:443 \
+    -a ${CLIENT_ADDRESS}:443 \
     -f toml \
     -d 10.8.0.1 > /root/client.yaml
 
