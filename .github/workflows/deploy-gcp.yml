@@ -68,9 +68,12 @@ jobs:
 
       - name: Clean Existing Disposable VM
         run: |
-          if gcloud compute instances describe trusttunnel-vpn-node --zone=${{ env.GCP_ZONE }} >/dev/null 2>&1; then
-            echo "Existing disposable instance found. Deleting..."
-            gcloud compute instances delete trusttunnel-vpn-node --zone=${{ env.GCP_ZONE }} --quiet
+          EXISTING_ZONE=$(gcloud compute instances list --filter="name=trusttunnel-vpn-node" --format="value(zone)" 2>/dev/null)
+          if [ -n "$EXISTING_ZONE" ]; then
+            echo "Existing disposable instance found in zone: $EXISTING_ZONE. Deleting..."
+            gcloud compute instances delete trusttunnel-vpn-node --zone="$EXISTING_ZONE" --quiet
+          else
+            echo "No existing disposable instance found."
           fi
 
       - name: Deploy VM with TrustTunnel Container
