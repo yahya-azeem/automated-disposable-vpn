@@ -42,6 +42,9 @@ cd /etc/trusttunnel
     --lib-settings vpn.toml \
     --hosts-settings hosts.toml
 
+# Enable routing/connections to private IPs (e.g. AdGuard DNS on 10.8.0.1)
+sed -i 's/allow_private_network_connections = false/allow_private_network_connections = true/g' vpn.toml
+
 # 4. Generate client configuration
 echo "Exporting client configuration profile..."
 /usr/local/bin/trusttunnel vpn.toml hosts.toml \
