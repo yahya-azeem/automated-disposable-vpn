@@ -90,28 +90,11 @@ echo "Starting i2pd daemon..."
 mkdir -p /var/log/i2pd
 i2pd --daemon --log=file --logfile=/var/log/i2pd/i2pd.log
 
-# 6. Start TrustTunnel (creates tun0)
-echo "Starting TrustTunnel..."
+# 6. Start TrustTunnel Server
+echo "Starting TrustTunnel Server..."
 /usr/local/bin/trusttunnel /etc/trusttunnel/vpn.toml /etc/trusttunnel/hosts.toml &
 TRUSTTUNNEL_PID=$!
-
-# Wait for tun0 interface to appear
-echo "Waiting for tun0 interface to be initialized..."
-TUN_READY=false
-for i in $(seq 1 15); do
-    if ip link show tun0 >/dev/null 2>&1; then
-        TUN_READY=true
-        break
-    fi
-    sleep 1
-done
-
-if [ "$TUN_READY" = "false" ]; then
-    echo "ERROR: tun0 interface was not created. Exiting."
-    kill $TRUSTTUNNEL_PID || true
-    exit 1
-fi
-echo "tun0 interface is up!"
+sleep 2
 
 # 7. Configure System-Wide IP Masquerading
 echo "Configuring firewall and IP forwarding..."
@@ -121,24 +104,25 @@ if [ -z "$DEFAULT_OUT_IF" ]; then
     DEFAULT_OUT_IF="eth0"
 fi
 echo "Detected default outbound interface: $DEFAULT_OUT_IF"
-iptables -t nat -A POSTROUTING -s 10.8.0.0/24 -o "$DEFAULT_OUT_IF" -j MASQUERADE
+iptables -t nat -A POSTROUTING -s 10.8.0.0/24 -o "$DEFAULT_OUT_IF" -j MASQUERADE || true
 
 # 8. Start AdGuard Home
 echo "Starting AdGuard Home..."
 /opt/adguardhome/AdGuardHome/AdGuardHome -c /opt/adguardhome/AdGuardHome/AdGuardHome.yaml -w /opt/adguardhome/AdGuardHome &
 
-# 9. Start Suricata IDS
-echo "Starting Suricata IDS on tun0..."
+# 9. Start Suricata IDS on default interface
+echo "Starting Suricata IDS on $DEFAULT_OUT_IF..."
 # Update interface in suricata.yaml if it exists
 if [ -f /etc/suricata/suricata.yaml ]; then
-    sed -i 's/interface: eth0/interface: tun0/g' /etc/suricata/suricata.yaml
+    sed -i "s/interface: eth0/interface: $DEFAULT_OUT_IF/g" /etc/suricata/suricata.yaml
 fi
 mkdir -p /var/log/suricata
 touch /var/log/suricata/eve.json
-suricata -c /etc/suricata/suricata.yaml -i tun0 &
+suricata -c /etc/suricata/suricata.yaml -i "$DEFAULT_OUT_IF" &
 
 # 10. Start Log API HTTP Server
 echo "Starting log API HTTP server..."
+sed -i "s/'10.8.0.1'/'0.0.0.0'/g" /usr/local/bin/log_api.py
 python3 /usr/local/bin/log_api.py &
 
 echo "=== All services successfully initiated ==="
