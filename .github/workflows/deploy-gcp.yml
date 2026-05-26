@@ -29,9 +29,9 @@ on:
 env:
   GCP_REGION: ${{ github.event.inputs.region || github.event.client_payload.region || 'us-central1' }}
   GCP_ZONE: ${{ github.event.inputs.zone || github.event.client_payload.zone || 'us-central1-a' }}
-  DDNS_HOSTNAME: ${{ github.event.inputs.ddns_hostname || github.event.client_payload.ddns_hostname || '' }}
-  DDNS_USERNAME: ${{ github.event.inputs.ddns_username || github.event.client_payload.ddns_username || '' }}
-  DDNS_PASSWORD: ${{ github.event.inputs.ddns_password || github.event.client_payload.ddns_password || '' }}
+  DDNS_HOSTNAME: ${{ github.event.inputs.ddns_hostname || github.event.client_payload.ddns_hostname || secrets.DDNS_HOSTNAME || '' }}
+  DDNS_USERNAME: ${{ github.event.inputs.ddns_username || github.event.client_payload.ddns_username || secrets.DDNS_USERNAME || '' }}
+  DDNS_PASSWORD: ${{ github.event.inputs.ddns_password || github.event.client_payload.ddns_password || secrets.DDNS_PASSWORD || '' }}
 
 jobs:
   deploy:
