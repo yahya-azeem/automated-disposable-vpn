@@ -29,11 +29,25 @@ if [ -z "$PUBLIC_IP" ]; then
 fi
 echo "Public IP detected: $PUBLIC_IP"
 
-# Update No-IP Dynamic DNS if configured
+# Update No-IP Dynamic DNS if configured (Sync Initial Update + Background Daemon)
 if [ -n "$DDNS_HOSTNAME" ] && [ -n "$DDNS_USERNAME" ] && [ -n "$DDNS_PASSWORD" ]; then
-    echo "Updating No-IP DDNS hostname ${DDNS_HOSTNAME} to ${PUBLIC_IP}..."
+    echo "Performing initial No-IP DDNS update for ${DDNS_HOSTNAME} to ${PUBLIC_IP}..."
     curl -s -u "${DDNS_USERNAME}:${DDNS_PASSWORD}" "https://dynupdate.no-ip.com/nic/update?hostname=${DDNS_HOSTNAME}&myip=${PUBLIC_IP}" || true
+
+    # Start a background loop to act as a lightweight DDNS update daemon
+    echo "Starting background Dynamic DNS update daemon..."
+    (
+        while true; do
+            sleep 600
+            CURRENT_IP=$(curl -s --max-time 5 http://ifconfig.me/ip || true)
+            if [ -n "$CURRENT_IP" ]; then
+                echo "Periodic DDNS Daemon: Updating ${DDNS_HOSTNAME} to ${CURRENT_IP}..."
+                curl -s -u "${DDNS_USERNAME}:${DDNS_PASSWORD}" "https://dynupdate.no-ip.com/nic/update?hostname=${DDNS_HOSTNAME}&myip=${CURRENT_IP}" || true
+            fi
+        done
+    ) &
 fi
+
 
 # Determine certificate and client connection hostname/IP
 CERT_HOSTNAME="trusttunnel.local"
