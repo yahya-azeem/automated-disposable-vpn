@@ -110,6 +110,9 @@ echo "Detected default outbound interface: $DEFAULT_OUT_IF"
 iptables -t nat -A POSTROUTING -s 10.8.0.0/24 -o "$DEFAULT_OUT_IF" -j MASQUERADE || true
 
 # 8. Start AdGuard Home
+echo "Configuring local IP for DNS..."
+ip addr add 10.8.0.1/32 dev lo || true
+
 echo "Starting AdGuard Home..."
 /opt/adguardhome/AdGuardHome/AdGuardHome -c /opt/adguardhome/AdGuardHome/AdGuardHome.yaml -w /opt/adguardhome/AdGuardHome &
 
