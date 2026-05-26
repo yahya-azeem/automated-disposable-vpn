@@ -26,9 +26,9 @@ def generate_shortcut_json():
                 "WFWorkflowActionParameters": {
                     "WFMenuPrompt": "Select TrustTunnel VPN Action",
                     "WFMenuItems": [
-                        "Deploy Iowa, US (us-central1)",
-                        "Deploy Frankfurt, Germany (europe-west3)",
-                        "Deploy Tokyo, Japan (asia-northeast1)",
+                        "Deploy Iowa, US (us-central1) [Always Free]",
+                        "Deploy South Carolina, US (us-east1) [Always Free]",
+                        "Deploy Oregon, US (us-west1) [Always Free]",
                         "Destroy Active VPN",
                         "Check Status"
                     ]

@@ -10,8 +10,8 @@ The TrustTunnel Control Plane is an elegant, ultra-lightweight native Apple iOS 
 graph TD
     A[Launch Shortcut] --> B[Choose from Menu]
     B -->|Deploy us-central1| C[Set Region: us-central1]
-    B -->|Deploy europe-west3| D[Set Region: europe-west3]
-    B -->|Deploy asia-northeast1| E[Set Region: asia-northeast1]
+    B -->|Deploy us-east1| D[Set Region: us-east1]
+    B -->|Deploy us-west1| E[Set Region: us-west1]
     B -->|Destroy Active VPN| F[POST /dispatches destroy-active.yml]
     B -->|Check Status| G[GET /runs latest status]
 
@@ -46,16 +46,16 @@ At the very top of your Shortcut, add a **Text** action to store your GitHub Per
 
 ### Step 2: Create Main Menu
 Add a **Choose from Menu** action with the following prompt: *"Select TrustTunnel VPN Action"*
-- Option 1: `Deploy Iowa, US (us-central1)`
-- Option 2: `Deploy Frankfurt, Germany (europe-west3)`
-- Option 3: `Deploy Tokyo, Japan (asia-northeast1)`
+- Option 1: `Deploy Iowa, US (us-central1) [Always Free]`
+- Option 2: `Deploy South Carolina, US (us-east1) [Always Free]`
+- Option 3: `Deploy Oregon, US (us-west1) [Always Free]`
 - Option 4: `Destroy Active VPN`
 - Option 5: `Check Status`
 
 ### Step 3: Configure Region Deploy Actions
 Under each Deploy menu option, add two **Set Variable** actions:
-1. `SelectedRegion` with the respective region code (`us-central1`, `europe-west3`, or `asia-northeast1`).
-2. `SelectedZone` with the respective zone code (`us-central1-a`, `europe-west3-a`, or `asia-northeast1-a`).
+1. `SelectedRegion` with the respective region code (`us-central1`, `us-east1`, or `us-west1`).
+2. `SelectedZone` with the respective zone code (`us-central1-a`, `us-east1-b`, or `us-west1-b`).
 
 Below the menu block, add the **Get Contents of URL** action to trigger the GitHub Actions workflow dispatch:
 - **URL**: `GitHubApiBase`/actions/workflows/deploy-gcp.yml/dispatches
