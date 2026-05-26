@@ -15,4 +15,6 @@ ansible/fetched/
 
 # Keys & Secrets
 trusttunnel-key.json
+server.crt
+client.yaml
 
