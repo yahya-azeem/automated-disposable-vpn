@@ -74,15 +74,17 @@ dns:
     - 1.0.0.1
   bootstrap_dns:
     - 1.1.1.1
-filters:
-  - enabled: true
-    url: https://adguardteam.github.io/HostlistsRegistry/assets/filter_1.txt
-    name: AdGuard DNS filter
-    id: 1
-  - enabled: true
-    url: https://adguardteam.github.io/HostlistsRegistry/assets/filter_27.txt
-    name: OISD Blocklist Small
-    id: 2
+filtering:
+  filtering_enabled: true
+  filters:
+    - enabled: true
+      url: https://adguardteam.github.io/HostlistsRegistry/assets/filter_1.txt
+      name: AdGuard DNS filter
+      id: 1
+    - enabled: true
+      url: https://adguardteam.github.io/HostlistsRegistry/assets/filter_27.txt
+      name: OISD Blocklist Small
+      id: 2
 EOF
 
 # 5. Start i2pd
