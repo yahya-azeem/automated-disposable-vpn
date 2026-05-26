@@ -29,50 +29,34 @@ if [ -z "$PUBLIC_IP" ]; then
 fi
 echo "Public IP detected: $PUBLIC_IP"
 
-# 3. Generate TrustTunnel Server Certificates if not present
+# 3. Generate configurations dynamically using setup_wizard
+echo "Generating TrustTunnel server configurations and self-signed certificates..."
 mkdir -p /etc/trusttunnel
-if [ ! -f /etc/trusttunnel/server.crt ]; then
-    echo "Generating self-signed TLS certificates for TrustTunnel..."
-    openssl req -x509 -newkey rsa:4096 -keyout /etc/trusttunnel/server.key \
-        -out /etc/trusttunnel/server.crt -days 365 -nodes \
-        -subj "/CN=trusttunnel.local"
-fi
+cd /etc/trusttunnel
 
-# Extract Certificate Fingerprint
-TLS_FINGERPRINT=$(openssl x509 -noout -fingerprint -sha256 -in /etc/trusttunnel/server.crt | tr -d ':' | cut -d= -f2)
-echo "TLS Certificate Fingerprint: $TLS_FINGERPRINT"
+/opt/trusttunnel/setup_wizard -m non-interactive \
+    -a 0.0.0.0:443 \
+    -c client1:auto-generated-secret-${PUBLIC_IP} \
+    -n trusttunnel.local \
+    --cert-type self-signed \
+    --lib-settings vpn.toml \
+    --hosts-settings hosts.toml
 
-# 4. Generate configurations dynamically
-echo "Writing configuration files..."
-cat <<EOF > /etc/trusttunnel/config.yaml
-bind: "0.0.0.0:443"
-tls:
-  cert: "/etc/trusttunnel/server.crt"
-  key: "/etc/trusttunnel/server.key"
-network:
-  ipv4_range: "10.8.0.0/24"
-  dns: "10.8.0.1"
-users:
-  - id: "client1"
-    secret: "auto-generated-secret-${PUBLIC_IP}"
-EOF
+# 4. Generate client configuration
+echo "Exporting client configuration profile..."
+/usr/local/bin/trusttunnel vpn.toml hosts.toml \
+    -c client1 \
+    -a ${PUBLIC_IP}:443 \
+    -f toml \
+    -d 10.8.0.1 > /root/client.yaml
 
-cat <<EOF > /root/client.yaml
-endpoints:
-  - "${PUBLIC_IP}:443"
-tls:
-  server_name: "trusttunnel.local"
-  fingerprint: "${TLS_FINGERPRINT}"
-auth:
-  id: "client1"
-  secret: "auto-generated-secret-${PUBLIC_IP}"
-dns: "10.8.0.1"
-EOF
-
-# Ensure backup in a shared volume location if mounted to /root/conf
+# Ensure backups
+cp /root/client.yaml /root/client.toml
 mkdir -p /root/conf
 cp /root/client.yaml /root/conf/client.yaml
-echo "Client configuration written to /root/client.yaml and /root/conf/client.yaml:"
+cp /root/client.toml /root/conf/client.toml
+
+echo "Client configuration written to /root/client.yaml:"
 cat /root/client.yaml
 
 # Create AdGuardHome configuration directory and write it
@@ -108,7 +92,7 @@ i2pd --daemon --log=file --logfile=/var/log/i2pd/i2pd.log
 
 # 6. Start TrustTunnel (creates tun0)
 echo "Starting TrustTunnel..."
-/usr/local/bin/trusttunnel -c /etc/trusttunnel/config.yaml &
+/usr/local/bin/trusttunnel /etc/trusttunnel/vpn.toml /etc/trusttunnel/hosts.toml &
 TRUSTTUNNEL_PID=$!
 
 # Wait for tun0 interface to appear
