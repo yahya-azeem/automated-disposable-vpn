@@ -9,13 +9,13 @@ The TrustTunnel Control Plane is an elegant, ultra-lightweight native Apple iOS 
 ```mermaid
 graph TD
     A[Launch Shortcut] --> B[Choose from Menu]
-    B -->|Deploy us-east-1| C[Set Region: us-east-1]
-    B -->|Deploy eu-central-1| D[Set Region: eu-central-1]
-    B -->|Deploy ap-northeast-1| E[Set Region: ap-northeast-1]
+    B -->|Deploy us-central1| C[Set Region: us-central1]
+    B -->|Deploy europe-west3| D[Set Region: europe-west3]
+    B -->|Deploy asia-northeast1| E[Set Region: asia-northeast1]
     B -->|Destroy Active VPN| F[POST /dispatches destroy-active.yml]
     B -->|Check Status| G[GET /runs latest status]
 
-    C --> H[POST /dispatches deploy-region.yml]
+    C --> H[POST /dispatches deploy-gcp.yml]
     D --> H
     E --> H
 
@@ -24,7 +24,7 @@ graph TD
     J -->|No| K[Wait 15 Seconds] --> I
     J -->|Yes| L[GET /artifacts client-config zip]
 
-    L --> M[Extract Archive: client.conf]
+    L --> M[Extract Archive: client.yaml]
     M --> N[Share Sheet / Open in VPN App]
     F --> O[Show Notification: Destroy Initiated]
     G --> P[Show Alert: Current Status]
@@ -37,23 +37,28 @@ graph TD
 You can easily build this Shortcut directly in the Apple Shortcuts app on your iOS device or Mac in about 5 minutes.
 
 ### Step 1: Define Configuration Variables
-At the very top of your Shortcut, add a **Text** action to store your GitHub Personal Access Token (PAT) and Repository details:
+At the very top of your Shortcut, add a **Text** action to store your GitHub Personal Access Token (PAT), Repository details, and optional No-IP DDNS details:
 - **Text**: `<YOUR_GITHUB_PAT_HERE>` (Rename variable to `GitHubToken`)
 - **Text**: `https://api.github.com/repos/<OWNER>/<REPO>` (Rename variable to `GitHubApiBase`)
+- **Text**: `vpn.hopto.org` (Rename variable to `DdnsHostname` - optional)
+- **Text**: `your-noip-username` (Rename variable to `DdnsUsername` - optional)
+- **Text**: `your-noip-password` (Rename variable to `DdnsPassword` - optional)
 
 ### Step 2: Create Main Menu
 Add a **Choose from Menu** action with the following prompt: *"Select TrustTunnel VPN Action"*
-- Option 1: `Deploy N. Virginia (us-east-1)`
-- Option 2: `Deploy Frankfurt (eu-central-1)`
-- Option 3: `Deploy Tokyo (ap-northeast-1)`
+- Option 1: `Deploy Iowa, US (us-central1)`
+- Option 2: `Deploy Frankfurt, Germany (europe-west3)`
+- Option 3: `Deploy Tokyo, Japan (asia-northeast1)`
 - Option 4: `Destroy Active VPN`
 - Option 5: `Check Status`
 
 ### Step 3: Configure Region Deploy Actions
-Under each Deploy menu option, add a **Set Variable** action named `SelectedRegion` with the respective region code (`us-east-1`, `eu-central-1`, or `ap-northeast-1`).
+Under each Deploy menu option, add two **Set Variable** actions:
+1. `SelectedRegion` with the respective region code (`us-central1`, `europe-west3`, or `asia-northeast1`).
+2. `SelectedZone` with the respective zone code (`us-central1-a`, `europe-west3-a`, or `asia-northeast1-a`).
 
 Below the menu block, add the **Get Contents of URL** action to trigger the GitHub Actions workflow dispatch:
-- **URL**: `GitHubApiBase`/actions/workflows/deploy-region.yml/dispatches
+- **URL**: `GitHubApiBase`/actions/workflows/deploy-gcp.yml/dispatches
 - **Method**: `POST`
 - **Headers**:
   - `Authorization`: `Bearer GitHubToken`
@@ -64,7 +69,11 @@ Below the menu block, add the **Get Contents of URL** action to trigger the GitH
   {
     "ref": "main",
     "inputs": {
-      "region": "SelectedRegion"
+      "region": "SelectedRegion",
+      "zone": "SelectedZone",
+      "ddns_hostname": "DdnsHostname",
+      "ddns_username": "DdnsUsername",
+      "ddns_password": "DdnsPassword"
     }
   }
   ```

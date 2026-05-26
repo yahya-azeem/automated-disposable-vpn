@@ -26,9 +26,9 @@ def generate_shortcut_json():
                 "WFWorkflowActionParameters": {
                     "WFMenuPrompt": "Select TrustTunnel VPN Action",
                     "WFMenuItems": [
-                        "Deploy N. Virginia (us-east-1)",
-                        "Deploy Frankfurt (eu-central-1)",
-                        "Deploy Tokyo (ap-northeast-1)",
+                        "Deploy Iowa, US (us-central1)",
+                        "Deploy Frankfurt, Germany (europe-west3)",
+                        "Deploy Tokyo, Japan (asia-northeast1)",
                         "Destroy Active VPN",
                         "Check Status"
                     ]
@@ -37,7 +37,7 @@ def generate_shortcut_json():
             {
                 "WFWorkflowActionIdentifier": "is.workflow.actions.downloadurl",
                 "WFWorkflowActionParameters": {
-                    "WFURL": {"Value": {"string": "Attachments.GitHubApiBase/actions/workflows/deploy-region.yml/dispatches"}},
+                    "WFURL": {"Value": {"string": "Attachments.GitHubApiBase/actions/workflows/deploy-gcp.yml/dispatches"}},
                     "WFHTTPMethod": "POST",
                     "WFHTTPHeaders": [
                         {"Key": "Authorization", "Value": "Bearer Attachments.GitHubToken"},
@@ -47,7 +47,13 @@ def generate_shortcut_json():
                     "WFHTTPBodyType": "JSON",
                     "WFJSONValues": [
                         {"Key": "ref", "Value": "main"},
-                        {"Key": "inputs", "Value": {"region": "us-east-1"}}
+                        {"Key": "inputs", "Value": {
+                            "region": "SelectedRegion",
+                            "zone": "SelectedZone",
+                            "ddns_hostname": "DdnsHostname",
+                            "ddns_username": "DdnsUsername",
+                            "ddns_password": "DdnsPassword"
+                        }}
                     ]
                 }
             },

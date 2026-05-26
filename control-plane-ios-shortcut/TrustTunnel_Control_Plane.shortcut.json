@@ -21,9 +21,9 @@
             "WFWorkflowActionParameters": {
                 "WFMenuPrompt": "Select TrustTunnel VPN Action",
                 "WFMenuItems": [
-                    "Deploy N. Virginia (us-east-1)",
-                    "Deploy Frankfurt (eu-central-1)",
-                    "Deploy Tokyo (ap-northeast-1)",
+                    "Deploy Iowa, US (us-central1)",
+                    "Deploy Frankfurt, Germany (europe-west3)",
+                    "Deploy Tokyo, Japan (asia-northeast1)",
                     "Destroy Active VPN",
                     "Check Status"
                 ]
@@ -34,7 +34,7 @@
             "WFWorkflowActionParameters": {
                 "WFURL": {
                     "Value": {
-                        "string": "Attachments.GitHubApiBase/actions/workflows/deploy-region.yml/dispatches"
+                        "string": "Attachments.GitHubApiBase/actions/workflows/deploy-gcp.yml/dispatches"
                     }
                 },
                 "WFHTTPMethod": "POST",
@@ -61,7 +61,11 @@
                     {
                         "Key": "inputs",
                         "Value": {
-                            "region": "us-east-1"
+                            "region": "SelectedRegion",
+                            "zone": "SelectedZone",
+                            "ddns_hostname": "DdnsHostname",
+                            "ddns_username": "DdnsUsername",
+                            "ddns_password": "DdnsPassword"
                         }
                     }
                 ]
