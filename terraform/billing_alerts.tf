@@ -1,45 +1,36 @@
-# AWS Free Tier guardrails: AWS Budgets and CloudWatch billing alarms.
-# Note: Commented out for local testing with Floci because billing APIs are not typically supported in local emulators.
+# GCP Free Tier guardrails: GCP Billing Budgets.
+# Note: Commented out because billing APIs require billing account ID which may vary,
+# and it is not typically supported in local emulators.
 
 /*
-resource "aws_budgets_budget" "free_tier" {
-  name              = "trusttunnel-free-tier-budget"
-  budget_type       = "COST"
-  limit_amount      = tostring(var.budget_amount)
-  limit_unit        = "USD"
-  time_unit         = "MONTHLY"
-  time_period_start = "2024-01-01_00:00"
-
-  notification {
-    comparison_operator        = "GREATER_THAN"
-    threshold                  = 100
-    threshold_type             = "PERCENTAGE"
-    notification_type          = "ACTUAL"
-    subscriber_email_addresses = [var.budget_subscriber_email]
-  }
-
-  notification {
-    comparison_operator        = "GREATER_THAN"
-    threshold                  = 80
-    threshold_type             = "PERCENTAGE"
-    notification_type          = "FORECASTED"
-    subscriber_email_addresses = [var.budget_subscriber_email]
-  }
+data "google_billing_account" "account" {
+  billing_account = "000000-000000-000000"
 }
 
-resource "aws_cloudwatch_metric_alarm" "billing_alarm" {
-  alarm_name          = "trusttunnel-estimated-charges-alarm"
-  comparison_operator = "GreaterThanThreshold"
-  evaluation_periods  = 1
-  metric_name         = "EstimatedCharges"
-  namespace           = "AWS/Billing"
-  period              = 21600 # 6 hours
-  statistic           = "Maximum"
-  threshold           = var.budget_amount
-  alarm_description   = "Billing alarm triggered when AWS charges exceed the monthly Free Tier guardrail budget."
+resource "google_billing_budget" "free_tier" {
+  billing_account = data.google_billing_account.account.id
+  display_name    = "trusttunnel-free-tier-budget"
 
-  dimensions = {
-    Currency = "USD"
+  budget_filter {
+    projects = ["projects/${var.gcp_project_id}"]
   }
+
+  amount {
+    specified_amount {
+      currency_code = "USD"
+      units         = tostring(var.budget_amount)
+    }
+  }
+
+  threshold_rules {
+    threshold_percent = 1.0
+  }
+
+  threshold_rules {
+    threshold_percent = 0.8
+    spend_basis       = "FORECASTED_SPEND"
+  }
+
+  # Requires setting up a Pub/Sub topic and notification channel for emails.
 }
 */

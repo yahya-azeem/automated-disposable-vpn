@@ -1,155 +1,121 @@
 terraform {
   required_providers {
-    aws = {
-      source = "hashicorp/aws"
+    google = {
+      source = "hashicorp/google"
     }
   }
 }
 
-# Fetch the latest official Alpine Linux AMI based on instance architecture
-data "aws_ami" "alpine" {
-  most_recent = true
-  owners      = ["538276064493"] # Official Alpine Linux AMI Owner
-
-  filter {
-    name   = "name"
-    values = ["alpine-3.*"]
-  }
-
-  filter {
-    name   = "architecture"
-    values = [length(regexall("^t4g", var.instance_type)) > 0 ? "arm64" : "x86_64"]
-  }
+# Fetch the latest Container-Optimized OS image
+data "google_compute_image" "cos" {
+  family  = "cos-stable"
+  project = "cos-cloud"
 }
 
 # Minimal VPC dedicated to the disposable VPN node
-resource "aws_vpc" "vpn" {
-  cidr_block           = "10.0.0.0/16"
-  enable_dns_hostnames = true
-  enable_dns_support   = true
-  tags                 = merge(var.tags, { Name = "trusttunnel-vpc-${var.region}" })
+resource "google_compute_network" "vpn" {
+  name                    = "trusttunnel-vpc-${var.region}"
+  auto_create_subnetworks = false
 }
 
-resource "aws_subnet" "public" {
-  vpc_id                  = aws_vpc.vpn.id
-  cidr_block              = "10.0.1.0/24"
-  map_public_ip_on_launch = true
-  tags                    = merge(var.tags, { Name = "trusttunnel-subnet-${var.region}" })
+resource "google_compute_subnetwork" "public" {
+  name          = "trusttunnel-subnet-${var.region}"
+  ip_cidr_range = "10.0.1.0/24"
+  region        = var.region
+  network       = google_compute_network.vpn.id
 }
 
-resource "aws_internet_gateway" "gw" {
-  vpc_id = aws_vpc.vpn.id
-  tags   = merge(var.tags, { Name = "trusttunnel-igw-${var.region}" })
-}
+# Firewall allowing TrustTunnel endpoint port and SSH
+resource "google_compute_firewall" "vpn" {
+  name    = "trusttunnel-fw-${var.region}"
+  network = google_compute_network.vpn.name
 
-resource "aws_route_table" "public" {
-  vpc_id = aws_vpc.vpn.id
-  tags   = merge(var.tags, { Name = "trusttunnel-rt-${var.region}" })
-}
-
-resource "aws_route" "internet" {
-  route_table_id         = aws_route_table.public.id
-  destination_cidr_block = "0.0.0.0/0"
-  gateway_id             = aws_internet_gateway.gw.id
-}
-
-resource "aws_route_table_association" "public" {
-  subnet_id      = aws_subnet.public.id
-  route_table_id = aws_route_table.public.id
-}
-
-# Security Group allowing TrustTunnel endpoint port and SSH
-resource "aws_security_group" "vpn" {
-  name        = "trusttunnel-sg-${var.region}"
-  description = "Security group for TrustTunnel VPN node"
-  vpc_id      = aws_vpc.vpn.id
-
-  ingress {
-    description = "TrustTunnel VPN Endpoint Port (TCP)"
-    from_port   = var.endpoint_port
-    to_port     = var.endpoint_port
-    protocol    = "tcp"
-    cidr_blocks = [var.allowed_client_ip_range]
+  allow {
+    protocol = "tcp"
+    ports    = [tostring(var.endpoint_port), "22"]
   }
 
-  ingress {
-    description = "TrustTunnel VPN Endpoint Port (UDP)"
-    from_port   = var.endpoint_port
-    to_port     = var.endpoint_port
-    protocol    = "udp"
-    cidr_blocks = [var.allowed_client_ip_range]
+  allow {
+    protocol = "udp"
+    ports    = [tostring(var.endpoint_port)]
   }
 
-  ingress {
-    description = "SSH access for Ansible provisioning"
-    from_port   = 22
-    to_port     = 22
-    protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
-
-  egress {
-    description = "Allow all outbound traffic"
-    from_port   = 0
-    to_port     = 0
-    protocol    = "-1"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
-
-  tags = merge(var.tags, { Name = "trusttunnel-sg-${var.region}" })
+  source_ranges = [var.allowed_client_ip_range]
+  target_tags   = ["trusttunnel-node"]
 }
 
-resource "aws_key_pair" "vpn" {
-  count      = var.ssh_public_key != "" ? 1 : 0
-  key_name   = "trusttunnel-key-${var.region}"
-  public_key = var.ssh_public_key
-  tags       = var.tags
+# Allow GCP IAP for SSH (optional but good practice)
+resource "google_compute_firewall" "iap" {
+  name    = "trusttunnel-iap-${var.region}"
+  network = google_compute_network.vpn.name
+
+  allow {
+    protocol = "tcp"
+    ports    = ["22"]
+  }
+
+  source_ranges = ["35.235.240.0/20"]
+  target_tags   = ["trusttunnel-node"]
 }
 
-# IAM Role for AWS Systems Manager (SSM) Session Manager access
-resource "aws_iam_role" "ssm" {
-  name = "trusttunnel-ssm-role-${var.region}"
-  assume_role_policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [
-      {
-        Action = "sts:AssumeRole"
-        Effect = "Allow"
-        Principal = {
-          Service = "ec2.amazonaws.com"
+locals {
+  # The container declaration runs the prebuilt image and configures runtime settings via env variables.
+  container_declaration = yamlencode({
+    spec = {
+      containers = [
+        {
+          name  = "trusttunnel-node"
+          image = var.container_image
+          env = [
+            {
+              name  = "SSH_PUBLIC_KEY"
+              value = var.ssh_public_key
+            },
+            {
+              name  = "PORT"
+              value = tostring(var.endpoint_port)
+            }
+          ]
+          securityContext = {
+            privileged = true
+          }
+          stdin = false
+          tty   = false
         }
-      }
-    ]
+      ]
+      restartPolicy = "Always"
+    }
   })
-  tags = var.tags
 }
 
-resource "aws_iam_role_policy_attachment" "ssm" {
-  role       = aws_iam_role.ssm.name
-  policy_arn = "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
-}
+# The single micro Compute Engine instance for the active VPN node using Container-Optimized OS
+resource "google_compute_instance" "vpn" {
+  name         = "trusttunnel-node-${var.region}"
+  machine_type = var.instance_type
+  zone         = var.zone
+  project      = var.project
 
-resource "aws_iam_instance_profile" "ssm" {
-  name = "trusttunnel-ssm-profile-${var.region}"
-  role = aws_iam_role.ssm.name
-  tags = var.tags
-}
-
-# The single micro EC2 instance for the active VPN node
-resource "aws_instance" "vpn" {
-  ami                  = data.aws_ami.alpine.id
-  instance_type        = var.instance_type
-  subnet_id            = aws_subnet.public.id
-  vpc_security_group_ids = [aws_security_group.vpn.id]
-  iam_instance_profile = aws_iam_instance_profile.ssm.name
-  key_name             = var.ssh_public_key != "" ? aws_key_pair.vpn[0].key_name : null
-
-  root_block_device {
-    volume_size           = 8
-    volume_type           = "gp3"
-    delete_on_termination = true
-    encrypted             = true
+  boot_disk {
+    initialize_params {
+      image = data.google_compute_image.cos.self_link
+      size  = 10
+      type  = "pd-standard"
+    }
   }
 
-  tags = merge(var.tags, { Name = "trusttunnel-node-${var.region}" })
+  network_interface {
+    subnetwork = google_compute_subnetwork.public.id
+    access_config {
+      # Ephemeral public IP
+    }
+  }
+
+  metadata = {
+    gce-container-declaration = local.container_declaration
+    google-logging-enabled    = "true"
+  }
+
+  tags = ["trusttunnel-node"]
+
+  labels = var.tags
 }

@@ -10,6 +10,7 @@
       - tcpdump
       - iftop
       - tshark
+      - i2pd
     state: present
     update_cache: yes
   when: ansible_os_family == 'Alpine'
@@ -130,6 +131,13 @@
 - name: Enable and start Suricata
   service:
     name: suricata
+    enabled: yes
+    state: started
+  ignore_errors: yes
+
+- name: Enable and start i2pd
+  service:
+    name: i2pd
     enabled: yes
     state: started
   ignore_errors: yes

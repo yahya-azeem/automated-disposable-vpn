@@ -1,14 +1,14 @@
 output "instance_id" {
-  description = "The EC2 instance ID."
-  value       = aws_instance.vpn.id
+  description = "The Compute Engine instance ID."
+  value       = google_compute_instance.vpn.id
 }
 
 output "public_ip" {
   description = "The public IP address."
-  value       = aws_instance.vpn.public_ip
+  value       = google_compute_instance.vpn.network_interface[0].access_config[0].nat_ip
 }
 
-output "vpc_id" {
-  description = "The VPC ID."
-  value       = aws_vpc.vpn.id
+output "network_id" {
+  description = "The Network ID."
+  value       = google_compute_network.vpn.id
 }

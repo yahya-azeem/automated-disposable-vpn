@@ -1,23 +1,29 @@
 variable "local_mode" {
   type        = bool
-  description = "If true, skip AWS EC2 and deploy a local Docker container for testing"
+  description = "If true, skip GCP and deploy a local Docker container for testing"
   default     = false
+}
+
+variable "gcp_project_id" {
+  type        = string
+  description = "The GCP Project ID."
+  default     = "trusttunnel-vpn-project"
 }
 
 variable "active_region" {
   type        = string
-  description = "The currently active AWS region for the single VPN node. Allowed values: us-east-1, eu-central-1, ap-northeast-1."
-  default     = "us-east-1"
+  description = "The currently active GCP region for the single VPN node. Allowed values (free tier): us-east1, us-central1, us-west1."
+  default     = "us-east1"
   validation {
-    condition     = contains(["us-east-1", "eu-central-1", "ap-northeast-1"], var.active_region)
-    error_message = "The active_region must be one of: us-east-1, eu-central-1, ap-northeast-1."
+    condition     = contains(["us-east1", "us-central1", "us-west1"], var.active_region)
+    error_message = "The active_region must be one of: us-east1, us-central1, us-west1."
   }
 }
 
 variable "instance_type" {
   type        = string
-  description = "The EC2 instance type. Must be Free Tier eligible (e.g., t4g.micro for arm64 or t3.micro for x86_64)."
-  default     = "t3.small"
+  description = "The Compute Engine instance type. Must be Free Tier eligible (e2-micro)."
+  default     = "e2-micro"
 }
 
 variable "allowed_client_ip_range" {
@@ -34,29 +40,29 @@ variable "endpoint_port" {
 
 variable "ssh_public_key" {
   type        = string
-  description = "Optional SSH public key to deploy to the EC2 instance for Ansible provisioning. If empty, a temporary key pair will be generated."
+  description = "SSH public key to deploy to the container. The container will run an SSH daemon with this key."
   default     = ""
 }
 
 variable "budget_amount" {
   type        = number
-  description = "Monthly budget limit in USD for AWS Free Tier guardrail monitoring."
+  description = "Monthly budget limit in USD for GCP billing alerts."
   default     = 1.0
-}
-
-variable "budget_subscriber_email" {
-  type        = string
-  description = "Email address to receive AWS Budget alerts if spending exceeds the threshold."
-  default     = "alerts@example.com"
 }
 
 variable "tags" {
   type        = map(string)
-  description = "Common tags applied to all AWS resources for cost tracking."
+  description = "Common labels applied to all GCP resources."
   default = {
-    Project     = "TrustTunnel-VPN"
-    Environment = "Production-Disposable"
-    ManagedBy   = "Terraform-Automated"
-    CostCenter  = "FreeTier-VPN"
+    project     = "trusttunnel-vpn"
+    environment = "production-disposable"
+    managed-by  = "terraform-automated"
   }
 }
+
+variable "container_image" {
+  type        = string
+  description = "The Docker/container image to run. Defaults to the local build target."
+  default     = "trusttunnel-node:latest"
+}
+
