@@ -63,49 +63,74 @@ jobs:
       - name: Set up Cloud SDK
         uses: google-github-actions/setup-gcloud@v2
 
-      - name: Configure Docker to use gcloud
+      - name: Build, Push, and Deploy GCE VM (Upsert & Start/Stop)
         run: |
-          gcloud auth configure-docker ${{ env.GCP_REGION }}-docker.pkg.dev --quiet
-
-      - name: Ensure Artifact Registry Repository Exists
-        run: |
-          gcloud artifacts repositories describe trusttunnel-repo --location=${{ env.GCP_REGION }} >/dev/null 2>&1 || \
-          gcloud artifacts repositories create trusttunnel-repo \
-            --repository-format=docker \
-            --location=${{ env.GCP_REGION }} \
-            --description="TrustTunnel Docker Repository"
-
-      - name: Build and Push Docker Image
-        run: |
+          TARGET_INSTANCE="trusttunnel-vpn-${{ env.GCP_REGION }}"
+          TARGET_ZONE="${{ env.GCP_ZONE }}"
           IMAGE_TAG="${{ env.GCP_REGION }}-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/trusttunnel-repo/vpn:latest"
-          docker build -t "$IMAGE_TAG" -f Dockerfile.prod .
-          docker push "$IMAGE_TAG"
-
-      - name: Clean Existing Disposable VM
-        run: |
-          EXISTING_ZONE=$(gcloud compute instances list --filter="name=trusttunnel-vpn-node" --format="value(zone)" 2>/dev/null)
-          if [ -n "$EXISTING_ZONE" ]; then
-            echo "Existing disposable instance found in zone: $EXISTING_ZONE. Deleting..."
-            gcloud compute instances delete trusttunnel-vpn-node --zone="$EXISTING_ZONE" --quiet
+          
+          # Check if target instance exists
+          if ! gcloud compute instances describe "$TARGET_INSTANCE" --zone="$TARGET_ZONE" >/dev/null 2>&1; then
+              echo "Target instance $TARGET_INSTANCE does not exist in $TARGET_ZONE. Building image and creating VM..."
+              
+              # Configure Docker to use gcloud
+              gcloud auth configure-docker ${{ env.GCP_REGION }}-docker.pkg.dev --quiet
+              
+              # Ensure Artifact Registry Repository Exists
+              gcloud artifacts repositories describe trusttunnel-repo --location=${{ env.GCP_REGION }} >/dev/null 2>&1 || \
+              gcloud artifacts repositories create trusttunnel-repo \
+                --repository-format=docker \
+                --location=${{ env.GCP_REGION }} \
+                --description="TrustTunnel Docker Repository"
+              
+              # Build and push container image
+              docker build -t "$IMAGE_TAG" -f Dockerfile.prod .
+              docker push "$IMAGE_TAG"
+              
+              # Create the VM instance (pre-deployed configuration)
+              gcloud compute instances create-with-container "$TARGET_INSTANCE" \
+                --zone="$TARGET_ZONE" \
+                --machine-type=e2-micro \
+                --container-image="$IMAGE_TAG" \
+                --container-privileged \
+                --container-restart-policy=always \
+                --container-mount-host-path mount-path=/root,host-path=/var/lib/trusttunnel,mode=rw \
+                --tags=trusttunnel-vpn \
+                --scopes=https://www.googleapis.com/auth/cloud-platform \
+                --boot-disk-size=10GB \
+                --boot-disk-type=pd-standard \
+                --metadata=ddns_hostname="${{ env.DDNS_HOSTNAME }}",ddns_username="${{ env.DDNS_USERNAME }}",ddns_password="${{ env.DDNS_PASSWORD }}",vpn_password="${{ env.VPN_PASSWORD }}",vpn_cert="${{ env.VPN_CERT }}",vpn_key="${{ env.VPN_KEY }}"
           else
-            echo "No existing disposable instance found."
+              echo "Target instance $TARGET_INSTANCE already exists. Updating metadata..."
+              
+              gcloud compute instances add-metadata "$TARGET_INSTANCE" \
+                --zone="$TARGET_ZONE" \
+                --metadata=ddns_hostname="${{ env.DDNS_HOSTNAME }}",ddns_username="${{ env.DDNS_USERNAME }}",ddns_password="${{ env.DDNS_PASSWORD }}",vpn_password="${{ env.VPN_PASSWORD }}",vpn_cert="${{ env.VPN_CERT }}",vpn_key="${{ env.VPN_KEY }}"
           fi
 
-      - name: Deploy VM with TrustTunnel Container
-        run: |
-          IMAGE_TAG="${{ env.GCP_REGION }}-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/trusttunnel-repo/vpn:latest"
-          gcloud compute instances create-with-container trusttunnel-vpn-node \
-            --zone=${{ env.GCP_ZONE }} \
-            --machine-type=e2-micro \
-            --container-image="$IMAGE_TAG" \
-            --container-privileged \
-            --container-restart-policy=always \
-            --container-mount-host-path mount-path=/root,host-path=/var/lib/trusttunnel,mode=rw \
-            --container-env=DDNS_HOSTNAME="${{ env.DDNS_HOSTNAME }}",DDNS_USERNAME="${{ env.DDNS_USERNAME }}",DDNS_PASSWORD="${{ env.DDNS_PASSWORD }}",VPN_PASSWORD="${{ env.VPN_PASSWORD }}",VPN_CERT="${{ env.VPN_CERT }}",VPN_KEY="${{ env.VPN_KEY }}" \
-            --tags=trusttunnel-vpn \
-            --scopes=https://www.googleapis.com/auth/cloud-platform \
-            --boot-disk-size=10GB \
-            --boot-disk-type=pd-standard
+          # Find and stop other running instances asynchronously
+          RUNNING_INSTANCES=$(gcloud compute instances list \
+            --filter="name ~ ^trusttunnel-vpn- AND name != $TARGET_INSTANCE AND status = RUNNING" \
+            --format="value(name,zone)" 2>/dev/null)
+
+          if [ -n "$RUNNING_INSTANCES" ]; then
+            echo "Stopping other running instances asynchronously:"
+            echo "$RUNNING_INSTANCES"
+            echo "$RUNNING_INSTANCES" | while read -r name zone; do
+              echo "Stopping instance $name in zone $zone..."
+              gcloud compute instances stop "$name" --zone="$zone" --async --quiet
+            done
+          fi
+
+          # Start or reset target instance
+          STATUS=$(gcloud compute instances describe "$TARGET_INSTANCE" --zone="$TARGET_ZONE" --format="value(status)" 2>/dev/null)
+          if [ "$STATUS" != "RUNNING" ]; then
+              echo "Starting target instance $TARGET_INSTANCE..."
+              gcloud compute instances start "$TARGET_INSTANCE" --zone="$TARGET_ZONE" --quiet
+          else
+              echo "Target instance is already running. Resetting to apply any metadata changes..."
+              gcloud compute instances reset "$TARGET_INSTANCE" --zone="$TARGET_ZONE" --quiet
+          fi
 
       - name: Ensure GCP Firewall Rules are Set
         run: |
@@ -121,24 +146,38 @@ jobs:
 
       - name: Wait for VPN Initialization
         run: |
-          echo "Waiting 35 seconds for container setup, IP detection, and client profile generation..."
-          sleep 35
+          TARGET_INSTANCE="trusttunnel-vpn-${{ env.GCP_REGION }}"
+          echo "Waiting for VPN container on $TARGET_INSTANCE to initialize and generate client profile..."
+          for i in {1..18}; do
+            if gcloud compute ssh "$TARGET_INSTANCE" \
+              --zone="${{ env.GCP_ZONE }}" \
+              --quiet \
+              --command="sudo test -f /var/lib/trusttunnel/client.yaml" 2>/dev/null; then
+                echo "Client configuration detected!"
+                exit 0
+            fi
+            echo "Waiting for client.yaml... (attempt $i/18)"
+            sleep 10
+          done
+          echo "ERROR: VPN initialization timed out (client.yaml not found)."
+          exit 1
 
       - name: Retrieve Client Configuration
         run: |
-          # Use gcloud compute ssh to grab the generated client profile and certs
-          gcloud compute ssh trusttunnel-vpn-node \
-            --zone=${{ env.GCP_ZONE }} \
+          TARGET_INSTANCE="trusttunnel-vpn-${{ env.GCP_REGION }}"
+          echo "Retrieving client configuration from $TARGET_INSTANCE..."
+          gcloud compute ssh "$TARGET_INSTANCE" \
+            --zone="${{ env.GCP_ZONE }}" \
             --quiet \
             --command="sudo cat /var/lib/trusttunnel/client.yaml" > client.yaml
           
-          gcloud compute ssh trusttunnel-vpn-node \
-            --zone=${{ env.GCP_ZONE }} \
+          gcloud compute ssh "$TARGET_INSTANCE" \
+            --zone="${{ env.GCP_ZONE }}" \
             --quiet \
             --command="sudo cat /var/lib/trusttunnel/server.crt" > server.crt || echo "" > server.crt
           
-          gcloud compute ssh trusttunnel-vpn-node \
-            --zone=${{ env.GCP_ZONE }} \
+          gcloud compute ssh "$TARGET_INSTANCE" \
+            --zone="${{ env.GCP_ZONE }}" \
             --quiet \
             --command="sudo cat /var/lib/trusttunnel/server.key" > server.key || echo "" > server.key
           

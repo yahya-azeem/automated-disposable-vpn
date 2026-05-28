@@ -1,4 +1,4 @@
-const CACHE_NAME = 'trusttunnel-cache-v1';
+const CACHE_NAME = 'trusttunnel-cache-v2';
 const PRECACHE_ASSETS = [
   './',
   './index.html',
@@ -37,43 +37,60 @@ self.addEventListener('activate', event => {
   );
 });
 
-// Fetch Event - Intercept and cache-first or network-fallback
+// Fetch Event - Intercept and handle cache/network strategies
 self.addEventListener('fetch', event => {
   const requestUrl = new URL(event.request.url);
   
   // Only handle local origin requests (ignore API requests to github.com)
   if (requestUrl.origin === self.location.origin) {
-    event.respondWith(
-      caches.match(event.request).then(cachedResponse => {
-        if (cachedResponse) {
-          // Fetch updated version in the background to update cache (Stale-While-Revalidate)
-          fetch(event.request).then(networkResponse => {
+    const isHtml = event.request.headers.get('accept') && event.request.headers.get('accept').includes('text/html');
+    
+    if (isHtml) {
+      // Network-First strategy for HTML files to ensure updates are seen immediately
+      event.respondWith(
+        fetch(event.request)
+          .then(networkResponse => {
             if (networkResponse.status === 200) {
-              caches.open(CACHE_NAME).then(cache => cache.put(event.request, networkResponse));
+              const responseToCache = networkResponse.clone();
+              caches.open(CACHE_NAME).then(cache => cache.put(event.request, responseToCache));
             }
-          }).catch(() => {/* Ignore network errors offline */});
-          
-          return cachedResponse;
-        }
-
-        return fetch(event.request).then(networkResponse => {
-          if (!networkResponse || networkResponse.status !== 200) {
             return networkResponse;
+          })
+          .catch(() => {
+            // Fall back to cached HTML if network is unavailable
+            return caches.match(event.request) || caches.match('./') || caches.match('./index.html');
+          })
+      );
+    } else {
+      // Cache-First with Stale-While-Revalidate for non-HTML static assets
+      event.respondWith(
+        caches.match(event.request).then(cachedResponse => {
+          if (cachedResponse) {
+            // Fetch updated version in the background to update cache
+            fetch(event.request).then(networkResponse => {
+              if (networkResponse.status === 200) {
+                caches.open(CACHE_NAME).then(cache => cache.put(event.request, networkResponse));
+              }
+            }).catch(() => {/* Ignore network errors offline */});
+            
+            return cachedResponse;
           }
 
-          const responseToCache = networkResponse.clone();
-          caches.open(CACHE_NAME).then(cache => {
-            cache.put(event.request, responseToCache);
+          return fetch(event.request).then(networkResponse => {
+            if (!networkResponse || networkResponse.status !== 200) {
+              return networkResponse;
+            }
+
+            const responseToCache = networkResponse.clone();
+            caches.open(CACHE_NAME).then(cache => {
+              cache.put(event.request, responseToCache);
+            });
+
+            return networkResponse;
           });
-
-          return networkResponse;
-        }).catch(() => {
-          // If offline and request is HTML, fall back to index.html
-          if (event.request.headers.get('accept') && event.request.headers.get('accept').includes('text/html')) {
-            return caches.match('./') || caches.match('./index.html');
-          }
-        });
-      })
-    );
+        })
+      );
+    }
   }
 });
+
