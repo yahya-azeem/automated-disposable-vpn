@@ -113,7 +113,7 @@
     vpnKey = '';
     localStorage.removeItem('tt_vpn_cert');
     localStorage.removeItem('tt_vpn_key');
-    successMessage = 'Persistent certificate cleared. A new one will be generated on next deploy.';
+    successMessage = 'Persistent certificate cleared. A new one will be generated on next region switch.';
     setTimeout(() => { successMessage = ''; }, 3000);
   }
 
@@ -331,7 +331,7 @@
       }
 
       workflowStatus = 'COMPLETED';
-      successMessage = 'VPN successfully deployed & config retrieved!';
+      successMessage = 'VPN successfully shifted region & config retrieved!';
       currentAction = 'idle';
     } catch (err: any) {
       console.error(err);
@@ -350,14 +350,14 @@
     
     resetMessages();
     currentAction = 'deploying';
-    workflowStatus = 'TRIGGERING DEPLOYMENT...';
+    workflowStatus = 'TRIGGERING SWITCH...';
     activeRegion = region;
     activeZone = zone;
     clientYaml = '';
     serverCert = '';
     
     const triggerTime = new Date();
-    startProgressSimulation(160); // GHA run takes ~2.5 mins (150-160s)
+    startProgressSimulation(45); // Region switches take ~35s (first-time regional deploy takes ~2.5 mins)
 
     try {
       const res = await fetch(`https://api.github.com/repos/${githubRepo}/actions/workflows/deploy-gcp.yml/dispatches`, {
@@ -579,8 +579,8 @@
         
         <!-- Left Column: Operations -->
         <div class="panel-card region-card">
-          <h2>Region Deployment (Always Free)</h2>
-          <p class="subtitle">Deploy a disposable node in a GCP Always Free Tier region</p>
+          <h2>Choose a Region (Always Free)</h2>
+          <p class="subtitle">Switch your active VPN node dynamically to a different region (~30s)</p>
           
           <div class="button-list">
             <button 
@@ -635,7 +635,7 @@
 
         <!-- Right Column: Status & Output -->
         <div class="panel-card status-card">
-          <h2>Deployment Status</h2>
+          <h2>Region Switch Status</h2>
           
           <div class="status-indicator-block">
             <div class="status-info">
@@ -650,7 +650,7 @@
                 <div class="progress-bar-fill" style="width: {progressPercent}%"></div>
               </div>
               <div class="progress-details">
-                <span>Deploying to {activeRegion} ({activeZone})</span>
+                <span>Switching to {activeRegion} ({activeZone})</span>
                 <span>{Math.round(progressPercent)}%</span>
               </div>
               
@@ -709,7 +709,7 @@
             <div class="empty-state">
               <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
               <h3>No Active Profile Displayed</h3>
-              <p>Trigger a region deployment to dynamically generate, fetch, and display the client configuration here.</p>
+              <p>Select a region to route/start your VPN node and view your client configuration here.</p>
             </div>
           {/if}
         </div>
@@ -748,7 +748,7 @@
           <div class="divider"></div>
 
           <h3>Dynamic DNS Settings (No-IP) [Optional]</h3>
-          <p class="subtitle">Required to map deployments to a fixed host name automatically</p>
+          <p class="subtitle">Required to map regional nodes to a fixed host name automatically</p>
 
           <div class="form-group">
             <label for="ddns-host">DDNS Hostname</label>
