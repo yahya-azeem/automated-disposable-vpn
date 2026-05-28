@@ -58,17 +58,26 @@ if [ -n "$DDNS_HOSTNAME" ]; then
 fi
 
 # 3. Generate configurations dynamically using setup_wizard
-echo "Generating TrustTunnel server configurations and self-signed certificates..."
+echo "Generating TrustTunnel server configurations..."
 mkdir -p /etc/trusttunnel
 cd /etc/trusttunnel
 
+VPN_PASS="${VPN_PASSWORD:-auto-generated-secret-${PUBLIC_IP}}"
+
 /opt/trusttunnel/setup_wizard -m non-interactive \
     -a 0.0.0.0:443 \
-    -c client1:auto-generated-secret-${PUBLIC_IP} \
+    -c client1:${VPN_PASS} \
     -n ${CERT_HOSTNAME} \
     --cert-type self-signed \
     --lib-settings vpn.toml \
     --hosts-settings hosts.toml
+
+# Overwrite with persistent certificate if provided
+if [ -n "$VPN_CERT" ] && [ -n "$VPN_KEY" ]; then
+    echo "Using persistent TLS certificate and key..."
+    echo "$VPN_CERT" > /etc/trusttunnel/server.crt
+    echo "$VPN_KEY" > /etc/trusttunnel/server.key
+fi
 
 # Enable routing/connections to private IPs (e.g. AdGuard DNS on 10.8.0.1)
 sed -i 's/allow_private_network_connections = false/allow_private_network_connections = true/g' vpn.toml
@@ -80,6 +89,10 @@ echo "Exporting client configuration profile..."
     -a ${CLIENT_ADDRESS}:443 \
     -f toml \
     -d 10.8.0.1 > /root/client.yaml
+
+# Copy cert and key to /root (mapped to host mount /var/lib/trusttunnel) for GHA retrieval
+cp /etc/trusttunnel/server.crt /root/server.crt
+cp /etc/trusttunnel/server.key /root/server.key
 
 # Ensure backups
 cp /root/client.yaml /root/client.toml

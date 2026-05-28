@@ -14,6 +14,11 @@
   let passcodeError = '';
   let isDecrypting = false;
 
+  // Persistent VPN State
+  let vpnPassword = 'trusttunnel-secret-passphrase';
+  let vpnCert = '';
+  let vpnKey = '';
+
   // Encrypted Config for App.svelte (Passcode: 000111)
   const ENCRYPTED_SALT = "bbc396f92f2c202ee62f03d1373262f3";
   const ENCRYPTED_IV = "f82a26884926d2d7e8403438";
@@ -103,6 +108,15 @@
     setTimeout(() => { successMessage = ''; }, 2000);
   }
 
+  function clearPersistentCert() {
+    vpnCert = '';
+    vpnKey = '';
+    localStorage.removeItem('tt_vpn_cert');
+    localStorage.removeItem('tt_vpn_key');
+    successMessage = 'Persistent certificate cleared. A new one will be generated on next deploy.';
+    setTimeout(() => { successMessage = ''; }, 3000);
+  }
+
   // UI State
   let activeTab = 'control'; // 'control' | 'settings'
   let currentAction = 'idle'; // 'idle' | 'deploying' | 'destroying'
@@ -127,6 +141,9 @@
     ddnsHostname = localStorage.getItem('tt_ddns_hostname') || 'amass.hopto.org';
     ddnsUsername = localStorage.getItem('tt_ddns_username') || 'yahyaazeem44@gmail.com';
     ddnsPassword = localStorage.getItem('tt_ddns_password') || 'Brobrobro1';
+    vpnPassword = localStorage.getItem('tt_vpn_password') || 'trusttunnel-secret-passphrase';
+    vpnCert = localStorage.getItem('tt_vpn_cert') || '';
+    vpnKey = localStorage.getItem('tt_vpn_key') || '';
   });
 
   // Save config
@@ -136,6 +153,9 @@
     localStorage.setItem('tt_ddns_hostname', ddnsHostname);
     localStorage.setItem('tt_ddns_username', ddnsUsername);
     localStorage.setItem('tt_ddns_password', ddnsPassword);
+    localStorage.setItem('tt_vpn_password', vpnPassword);
+    localStorage.setItem('tt_vpn_cert', vpnCert);
+    localStorage.setItem('tt_vpn_key', vpnKey);
     
     successMessage = 'Settings saved successfully!';
     setTimeout(() => { successMessage = ''; }, 3000);
@@ -295,6 +315,21 @@
         serverCert = certMatch[1].trim();
       }
 
+      // Check if persistent cert and key exist in the artifact zip and save them
+      const certFile = zip.file('server.crt');
+      const keyFile = zip.file('server.key');
+      if (certFile && keyFile) {
+        const certContent = await certFile.async('string');
+        const keyContent = await keyFile.async('string');
+        if (certContent.trim() && keyContent.trim()) {
+          vpnCert = certContent.trim();
+          vpnKey = keyContent.trim();
+          localStorage.setItem('tt_vpn_cert', vpnCert);
+          localStorage.setItem('tt_vpn_key', vpnKey);
+          console.log('Persistent TLS certificate and key saved to local storage.');
+        }
+      }
+
       workflowStatus = 'COMPLETED';
       successMessage = 'VPN successfully deployed & config retrieved!';
       currentAction = 'idle';
@@ -340,7 +375,10 @@
             zone,
             ddns_hostname: ddnsHostname,
             ddns_username: ddnsUsername,
-            ddns_password: ddnsPassword
+            ddns_password: ddnsPassword,
+            vpn_password: vpnPassword,
+            vpn_cert: vpnCert,
+            vpn_key: vpnKey
           }
         })
       });
@@ -740,6 +778,38 @@
               placeholder="••••••••••••" 
               bind:value={ddnsPassword}
             />
+          </div>
+
+          <div class="divider"></div>
+
+          <h3>VPN Credentials & Security</h3>
+          <p class="subtitle">Set persistent credentials so you never have to re-configure your phone when changing locations</p>
+
+          <div class="form-group">
+            <label for="vpn-pass">Persistent VPN Password</label>
+            <input 
+              id="vpn-pass" 
+              type="text" 
+              placeholder="e.g. my-secure-vpn-password" 
+              bind:value={vpnPassword}
+            />
+            <small>This password will be reused across all regions. Set once and configure on your phone.</small>
+          </div>
+
+          <div class="form-group cert-manager-group">
+            <span class="form-label-text">Persistent TLS Certificate Status</span>
+            {#if vpnCert}
+              <div class="cert-status-badge active-cert">
+                <span>Active Persistent Keypair Saved</span>
+                <button type="button" class="clear-cert-btn" on:click={clearPersistentCert}>
+                  Reset Certificate
+                </button>
+              </div>
+            {:else}
+              <div class="cert-status-badge no-cert">
+                <span>No Persistent Cert (Will auto-generate on first run)</span>
+              </div>
+            {/if}
           </div>
 
           <button class="save-settings-btn" type="submit">
@@ -1218,7 +1288,7 @@
     gap: 0.5rem;
   }
 
-  .form-group label {
+  .form-group label, .form-group .form-label-text {
     font-size: 0.9rem;
     font-weight: 600;
   }
@@ -1401,5 +1471,50 @@
     background: rgba(239, 68, 68, 0.2) !important;
     color: #ef4444 !important;
     border-color: rgba(239, 68, 68, 0.4) !important;
+  }
+
+  /* Persistent Certificate Manager styling */
+  .cert-manager-group {
+    margin-top: 1rem;
+  }
+
+  .cert-status-badge {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0.75rem 1rem;
+    border-radius: 8px;
+    font-size: 0.85rem;
+    font-weight: 500;
+  }
+
+  .active-cert {
+    background: rgba(16, 185, 129, 0.08);
+    border: 1px solid rgba(16, 185, 129, 0.2);
+    color: #a7f3d0;
+  }
+
+  .no-cert {
+    background: rgba(239, 68, 68, 0.08);
+    border: 1px solid rgba(239, 68, 68, 0.2);
+    color: #fca5a5;
+  }
+
+  .clear-cert-btn {
+    background: rgba(239, 68, 68, 0.15) !important;
+    color: #fca5a5 !important;
+    border: 1px solid rgba(239, 68, 68, 0.3) !important;
+    padding: 4px 10px !important;
+    border-radius: 6px !important;
+    font-size: 0.75rem !important;
+    font-weight: 600 !important;
+    cursor: pointer;
+    box-shadow: none !important;
+    width: auto !important;
+  }
+
+  .clear-cert-btn:hover {
+    background: rgba(239, 68, 68, 0.3) !important;
+    color: white !important;
   }
 </style>

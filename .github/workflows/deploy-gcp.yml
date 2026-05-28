@@ -25,6 +25,18 @@ on:
         description: 'No-IP Password'
         required: false
         default: ''
+      vpn_password:
+        description: 'TrustTunnel VPN Client Password'
+        required: false
+        default: ''
+      vpn_cert:
+        description: 'Persistent Certificate'
+        required: false
+        default: ''
+      vpn_key:
+        description: 'Persistent Private Key'
+        required: false
+        default: ''
 
 env:
   GCP_REGION: ${{ github.event.inputs.region || github.event.client_payload.region || 'us-central1' }}
@@ -32,6 +44,9 @@ env:
   DDNS_HOSTNAME: ${{ github.event.inputs.ddns_hostname || github.event.client_payload.ddns_hostname || secrets.DDNS_HOSTNAME || '' }}
   DDNS_USERNAME: ${{ github.event.inputs.ddns_username || github.event.client_payload.ddns_username || secrets.DDNS_USERNAME || '' }}
   DDNS_PASSWORD: ${{ github.event.inputs.ddns_password || github.event.client_payload.ddns_password || secrets.DDNS_PASSWORD || '' }}
+  VPN_PASSWORD: ${{ github.event.inputs.vpn_password || github.event.client_payload.vpn_password || '' }}
+  VPN_CERT: ${{ github.event.inputs.vpn_cert || github.event.client_payload.vpn_cert || '' }}
+  VPN_KEY: ${{ github.event.inputs.vpn_key || github.event.client_payload.vpn_key || '' }}
 
 jobs:
   deploy:
@@ -86,7 +101,7 @@ jobs:
             --container-privileged \
             --container-restart-policy=always \
             --container-mount-host-path mount-path=/root,host-path=/var/lib/trusttunnel,mode=rw \
-            --container-env=DDNS_HOSTNAME="${{ env.DDNS_HOSTNAME }}",DDNS_USERNAME="${{ env.DDNS_USERNAME }}",DDNS_PASSWORD="${{ env.DDNS_PASSWORD }}" \
+            --container-env=DDNS_HOSTNAME="${{ env.DDNS_HOSTNAME }}",DDNS_USERNAME="${{ env.DDNS_USERNAME }}",DDNS_PASSWORD="${{ env.DDNS_PASSWORD }}",VPN_PASSWORD="${{ env.VPN_PASSWORD }}",VPN_CERT="${{ env.VPN_CERT }}",VPN_KEY="${{ env.VPN_KEY }}" \
             --tags=trusttunnel-vpn \
             --scopes=https://www.googleapis.com/auth/cloud-platform \
             --boot-disk-size=10GB \
@@ -111,17 +126,30 @@ jobs:
 
       - name: Retrieve Client Configuration
         run: |
-          # Use gcloud compute ssh to grab the generated client profile
+          # Use gcloud compute ssh to grab the generated client profile and certs
           gcloud compute ssh trusttunnel-vpn-node \
             --zone=${{ env.GCP_ZONE }} \
             --quiet \
             --command="sudo cat /var/lib/trusttunnel/client.yaml" > client.yaml
           
-          echo "Successfully retrieved client.yaml configuration."
+          gcloud compute ssh trusttunnel-vpn-node \
+            --zone=${{ env.GCP_ZONE }} \
+            --quiet \
+            --command="sudo cat /var/lib/trusttunnel/server.crt" > server.crt || echo "" > server.crt
+          
+          gcloud compute ssh trusttunnel-vpn-node \
+            --zone=${{ env.GCP_ZONE }} \
+            --quiet \
+            --command="sudo cat /var/lib/trusttunnel/server.key" > server.key || echo "" > server.key
+          
+          echo "Successfully retrieved configurations."
 
       - name: Archive TrustTunnel Client Config
         uses: actions/upload-artifact@v4
         with:
           name: TrustTunnel-Client-Config
-          path: client.yaml
+          path: |
+            client.yaml
+            server.crt
+            server.key
           retention-days: 1
