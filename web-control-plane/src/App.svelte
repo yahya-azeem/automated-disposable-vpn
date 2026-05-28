@@ -9,6 +9,100 @@
   let ddnsUsername = 'yahyaazeem44@gmail.com';
   let ddnsPassword = 'Brobrobro1';
 
+  // Passcode decryption state
+  let passcode = '';
+  let passcodeError = '';
+  let isDecrypting = false;
+
+  // Encrypted Config for App.svelte (Passcode: 000111)
+  const ENCRYPTED_SALT = "bbc396f92f2c202ee62f03d1373262f3";
+  const ENCRYPTED_IV = "f82a26884926d2d7e8403438";
+  const ENCRYPTED_CIPHER = "52c387409f8c90f64eab24c4392c5f891527a29dddefa81d336ea45fc165a9e9a387542bcb3ffb5d";
+  const ENCRYPTED_TAG = "c1f0772ce2ab5c2e53101a84e54f25cb";
+  const ENCRYPTED_ITERATIONS = 500000;
+
+  // Helper to convert hex string to Uint8Array
+  function hexToBytes(hex: string): Uint8Array {
+    const bytes = new Uint8Array(hex.length / 2);
+    for (let i = 0; i < bytes.length; i++) {
+      bytes[i] = parseInt(hex.substring(i * 2, i * 2 + 2), 16);
+    }
+    return bytes;
+  }
+
+  // Decrypt using Web Crypto API
+  async function decryptToken(code: string): Promise<string> {
+    const salt = hexToBytes(ENCRYPTED_SALT);
+    const iv = hexToBytes(ENCRYPTED_IV);
+    const cipher = hexToBytes(ENCRYPTED_CIPHER);
+    const tag = hexToBytes(ENCRYPTED_TAG);
+
+    const encryptedData = new Uint8Array(cipher.length + tag.length);
+    encryptedData.set(cipher);
+    encryptedData.set(tag, cipher.length);
+
+    const encoder = new TextEncoder();
+    const keyMaterial = await window.crypto.subtle.importKey(
+      'raw',
+      encoder.encode(code),
+      { name: 'PBKDF2' },
+      false,
+      ['deriveBits', 'deriveKey']
+    );
+
+    const key = await window.crypto.subtle.deriveKey(
+      {
+        name: 'PBKDF2',
+        salt: salt,
+        iterations: ENCRYPTED_ITERATIONS,
+        hash: 'SHA-256'
+      },
+      keyMaterial,
+      { name: 'AES-GCM', length: 256 },
+      false,
+      ['decrypt']
+    );
+
+    const decryptedBuffer = await window.crypto.subtle.decrypt(
+      {
+        name: 'AES-GCM',
+        iv: iv,
+        tagLength: 128
+      },
+      key,
+      encryptedData
+    );
+
+    const decoder = new TextDecoder();
+    return decoder.decode(decryptedBuffer);
+  }
+
+  async function handleUnlock() {
+    passcodeError = '';
+    isDecrypting = true;
+    try {
+      const decrypted = await decryptToken(passcode);
+      githubToken = decrypted;
+      localStorage.setItem('tt_github_token', githubToken);
+      successMessage = 'Dashboard unlocked successfully!';
+      setTimeout(() => { successMessage = ''; }, 3000);
+    } catch (err) {
+      console.error('Decryption failed:', err);
+      passcodeError = 'Incorrect passcode. Access denied.';
+    } finally {
+      isDecrypting = false;
+    }
+  }
+
+  function handleLock() {
+    githubToken = '';
+    localStorage.removeItem('tt_github_token');
+    passcode = '';
+    passcodeError = '';
+    successMessage = 'Dashboard locked.';
+    setTimeout(() => { successMessage = ''; }, 2000);
+  }
+
   // UI State
   let activeTab = 'control'; // 'control' | 'settings'
   let currentAction = 'idle'; // 'idle' | 'deploying' | 'destroying'
@@ -362,20 +456,29 @@
         <h1>TrustTunnel <span>Control Plane</span></h1>
       </div>
       
-      <nav class="tab-navigation">
-        <button 
-          class="tab-btn {activeTab === 'control' ? 'active' : ''}" 
-          on:click={() => activeTab = 'control'}
-        >
-          Control Panel
-        </button>
-        <button 
-          class="tab-btn {activeTab === 'settings' ? 'active' : ''}" 
-          on:click={() => activeTab = 'settings'}
-        >
-          Settings
-        </button>
-      </nav>
+      {#if githubToken}
+        <nav class="tab-navigation">
+          <button 
+            class="tab-btn {activeTab === 'control' ? 'active' : ''}" 
+            on:click={() => activeTab = 'control'}
+          >
+            Control Panel
+          </button>
+          <button 
+            class="tab-btn {activeTab === 'settings' ? 'active' : ''}" 
+            on:click={() => activeTab = 'settings'}
+          >
+            Settings
+          </button>
+          <button 
+            class="tab-btn lock-btn-header"
+            on:click={handleLock}
+            title="Lock Dashboard"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+          </button>
+        </nav>
+      {/if}
     </header>
 
     {#if errorMessage}
@@ -392,7 +495,47 @@
       </div>
     {/if}
 
-    {#if activeTab === 'control'}
+    {#if !githubToken}
+      <!-- Lock Screen Panel -->
+      <section class="lock-screen-container">
+        <div class="lock-card">
+          <div class="lock-icon-wrapper">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+          </div>
+          <h2>TrustTunnel Locked</h2>
+          <p class="subtitle">Enter passcode to decrypt pre-loaded GitHub credentials</p>
+
+          <form on:submit|preventDefault={handleUnlock}>
+            <div class="passcode-input-group">
+              <input 
+                type="password" 
+                pattern="[0-9]*" 
+                inputmode="numeric" 
+                maxlength="6" 
+                placeholder="••••••" 
+                bind:value={passcode} 
+                required
+                disabled={isDecrypting}
+                autocomplete="current-password"
+              />
+            </div>
+            
+            {#if passcodeError}
+              <div class="passcode-error">{passcodeError}</div>
+            {/if}
+
+            <button type="submit" class="unlock-btn" disabled={isDecrypting}>
+              {#if isDecrypting}
+                Decrypting...
+              {:else}
+                Unlock Access
+              {/if}
+            </button>
+          </form>
+        </div>
+      </section>
+    {:else}
+      {#if activeTab === 'control'}
       <!-- Main Control Area -->
       <section class="control-panel-grid">
         
@@ -604,6 +747,7 @@
           </button>
         </form>
       </section>
+      {/if}
     {/if}
   </div>
 </main>
@@ -1141,5 +1285,121 @@
     cursor: not-allowed;
     box-shadow: none !important;
     transform: none !important;
+  }
+
+  /* Lock Screen overlay styling */
+  .lock-screen-container {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    padding: 2rem 0;
+    width: 100%;
+  }
+
+  .lock-card {
+    background: rgba(255, 255, 255, 0.015);
+    border: 1px solid var(--border-color);
+    border-radius: 16px;
+    padding: 2.5rem;
+    width: 100%;
+    max-width: 400px;
+    text-align: center;
+    box-sizing: border-box;
+    backdrop-filter: blur(8px);
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+  }
+
+  .lock-icon-wrapper {
+    width: 80px;
+    height: 80px;
+    background: rgba(59, 130, 246, 0.1);
+    border: 1px solid rgba(59, 130, 246, 0.25);
+    border-radius: 50%;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    margin: 0 auto 1.5rem auto;
+    color: var(--accent-blue);
+    box-shadow: 0 0 20px rgba(59, 130, 246, 0.15);
+  }
+
+  .lock-card h2 {
+    font-size: 1.4rem;
+    font-weight: 700;
+    margin-top: 0;
+    margin-bottom: 0.5rem;
+  }
+
+  .passcode-input-group {
+    margin: 2rem 0 1rem 0;
+  }
+
+  .passcode-input-group input {
+    background: rgba(0, 0, 0, 0.25);
+    border: 1px solid var(--border-color);
+    padding: 1rem;
+    border-radius: 12px;
+    color: var(--text-primary);
+    font-size: 1.8rem;
+    letter-spacing: 0.75rem;
+    text-align: center;
+    width: 100%;
+    box-sizing: border-box;
+    font-weight: 700;
+    transition: all 0.2s ease;
+  }
+
+  .passcode-input-group input:focus {
+    outline: none;
+    border-color: rgba(59, 130, 246, 0.5);
+    box-shadow: 0 0 15px rgba(59, 130, 246, 0.25);
+    background: rgba(0, 0, 0, 0.35);
+  }
+
+  .passcode-error {
+    color: var(--accent-red);
+    font-size: 0.85rem;
+    margin-bottom: 1rem;
+    font-weight: 500;
+  }
+
+  .unlock-btn {
+    width: 100%;
+    padding: 1rem;
+    background: var(--accent-blue);
+    color: white;
+    border: none;
+    border-radius: 12px;
+    font-weight: 700;
+    font-size: 1rem;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    box-shadow: 0 4px 15px rgba(59, 130, 246, 0.3);
+  }
+
+  .unlock-btn:hover:not(:disabled) {
+    background: #2563eb;
+    box-shadow: 0 4px 20px rgba(59, 130, 246, 0.45);
+  }
+
+  .unlock-btn:active:not(:disabled) {
+    transform: scale(0.98);
+  }
+
+  .lock-btn-header {
+    background: rgba(239, 68, 68, 0.1) !important;
+    color: #fca5a5 !important;
+    border: 1px solid rgba(239, 68, 68, 0.2) !important;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    padding: 8px !important;
+    margin-left: 8px;
+  }
+
+  .lock-btn-header:hover {
+    background: rgba(239, 68, 68, 0.2) !important;
+    color: #ef4444 !important;
+    border-color: rgba(239, 68, 68, 0.4) !important;
   }
 </style>
