@@ -343,6 +343,7 @@
 
   // Trigger Deployment
   async function triggerDeployment(region: string, zone: string) {
+    if (currentAction !== 'idle') return;
     if (!githubToken) {
       errorMessage = 'Please set your GitHub Personal Access Token in Settings first.';
       return;
@@ -405,6 +406,7 @@
 
   // Trigger Destroy
   async function triggerDestroy() {
+    if (currentAction !== 'idle') return;
     if (!githubToken) {
       errorMessage = 'Please set your GitHub Personal Access Token in Settings first.';
       return;

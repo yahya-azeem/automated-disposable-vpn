@@ -38,6 +38,10 @@ on:
         required: false
         default: ''
 
+concurrency:
+  group: gcp-vpn-deployment
+  cancel-in-progress: true
+
 env:
   GCP_REGION: ${{ github.event.inputs.region || github.event.client_payload.region || 'us-central1' }}
   GCP_ZONE: ${{ github.event.inputs.zone || github.event.client_payload.zone || 'us-central1-a' }}
