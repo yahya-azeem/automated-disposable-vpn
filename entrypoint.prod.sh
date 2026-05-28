@@ -29,6 +29,36 @@ if [ -z "$PUBLIC_IP" ]; then
 fi
 echo "Public IP detected: $PUBLIC_IP"
 
+# Fetch configurations from GCP metadata server if running on Google Compute Engine
+METADATA_HEADER="Metadata-Flavor: Google"
+METADATA_URL="http://metadata.google.internal/computeMetadata/v1/instance/attributes"
+
+if curl -s -H "$METADATA_HEADER" --connect-timeout 2 http://metadata.google.internal >/dev/null; then
+    echo "Google Cloud Platform metadata server detected. Querying custom attributes..."
+    
+    fetch_meta() {
+        curl -s -f -H "$METADATA_HEADER" "$METADATA_URL/$1" 2>/dev/null || true
+    }
+    
+    META_VAL=$(fetch_meta "ddns_hostname")
+    [ -n "$META_VAL" ] && DDNS_HOSTNAME="$META_VAL"
+
+    META_VAL=$(fetch_meta "ddns_username")
+    [ -n "$META_VAL" ] && DDNS_USERNAME="$META_VAL"
+
+    META_VAL=$(fetch_meta "ddns_password")
+    [ -n "$META_VAL" ] && DDNS_PASSWORD="$META_VAL"
+
+    META_VAL=$(fetch_meta "vpn_password")
+    [ -n "$META_VAL" ] && VPN_PASSWORD="$META_VAL"
+
+    META_VAL=$(fetch_meta "vpn_cert")
+    [ -n "$META_VAL" ] && VPN_CERT="$META_VAL"
+
+    META_VAL=$(fetch_meta "vpn_key")
+    [ -n "$META_VAL" ] && VPN_KEY="$META_VAL"
+fi
+
 # Update No-IP Dynamic DNS if configured (Sync Initial Update + Background Daemon)
 if [ -n "$DDNS_HOSTNAME" ] && [ -n "$DDNS_USERNAME" ] && [ -n "$DDNS_PASSWORD" ]; then
     echo "Performing initial No-IP DDNS update for ${DDNS_HOSTNAME} to ${PUBLIC_IP}..."

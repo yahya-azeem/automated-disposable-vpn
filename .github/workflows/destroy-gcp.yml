@@ -17,12 +17,17 @@ jobs:
       - name: Set up Cloud SDK
         uses: google-github-actions/setup-gcloud@v2
 
-      - name: Clean Existing Disposable VM
+      - name: Clean All Region VPN Nodes
         run: |
-          EXISTING_ZONE=$(gcloud compute instances list --filter="name=trusttunnel-vpn-node" --format="value(zone)" 2>/dev/null)
-          if [ -n "$EXISTING_ZONE" ]; then
-            echo "Existing disposable instance found in zone: $EXISTING_ZONE. Deleting..."
-            gcloud compute instances delete trusttunnel-vpn-node --zone="$EXISTING_ZONE" --quiet
+          # Find all instances matching prefix trusttunnel-vpn- and delete them
+          INSTANCES=$(gcloud compute instances list --filter="name ~ ^trusttunnel-vpn-" --format="value(name,zone)" 2>/dev/null)
+          if [ -n "$INSTANCES" ]; then
+            echo "Found matching instances to delete:"
+            echo "$INSTANCES"
+            echo "$INSTANCES" | while read -r name zone; do
+              echo "Deleting instance $name in zone $zone..."
+              gcloud compute instances delete "$name" --zone="$zone" --quiet
+            done
           else
-            echo "No existing disposable instance found."
+            echo "No matching instances found to delete."
           fi
