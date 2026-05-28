@@ -102,15 +102,42 @@ VPN_PASS="${VPN_PASSWORD:-auto-generated-secret-${PUBLIC_IP}}"
     --lib-settings vpn.toml \
     --hosts-settings hosts.toml
 
+# Enable routing/connections to private IPs (e.g. AdGuard DNS on 10.8.0.1)
+sed -i 's/allow_private_network_connections = false/allow_private_network_connections = true/g' vpn.toml
+
+# Parse configured certificate and key paths from hosts.toml
+CERT_PATH=$(grep -E 'cert_chain_path\s*=\s*' hosts.toml | head -n 1 | cut -d'"' -f2 || true)
+KEY_PATH=$(grep -E 'private_key_path\s*=\s*' hosts.toml | head -n 1 | cut -d'"' -f2 || true)
+
+if [ -z "$CERT_PATH" ]; then
+    CERT_PATH="certs/cert.pem"
+fi
+if [ -z "$KEY_PATH" ]; then
+    KEY_PATH="certs/key.pem"
+fi
+
+# Convert relative paths to absolute paths
+case "$CERT_PATH" in
+    /*) ;;
+    *) CERT_PATH="/etc/trusttunnel/$CERT_PATH" ;;
+esac
+
+case "$KEY_PATH" in
+    /*) ;;
+    *) KEY_PATH="/etc/trusttunnel/$KEY_PATH" ;;
+esac
+
+echo "Resolved certificate path: $CERT_PATH"
+echo "Resolved private key path: $KEY_PATH"
+
 # Overwrite with persistent certificate if provided
 if [ -n "$VPN_CERT" ] && [ -n "$VPN_KEY" ]; then
     echo "Using persistent TLS certificate and key..."
-    echo "$VPN_CERT" > /etc/trusttunnel/server.crt
-    echo "$VPN_KEY" > /etc/trusttunnel/server.key
+    mkdir -p "$(dirname "$CERT_PATH")"
+    mkdir -p "$(dirname "$KEY_PATH")"
+    echo "$VPN_CERT" > "$CERT_PATH"
+    echo "$VPN_KEY" > "$KEY_PATH"
 fi
-
-# Enable routing/connections to private IPs (e.g. AdGuard DNS on 10.8.0.1)
-sed -i 's/allow_private_network_connections = false/allow_private_network_connections = true/g' vpn.toml
 
 # 4. Generate client configuration
 echo "Exporting client configuration profile..."
@@ -121,8 +148,8 @@ echo "Exporting client configuration profile..."
     -d 10.8.0.1 > /root/client.yaml
 
 # Copy cert and key to /root (mapped to host mount /var/lib/trusttunnel) for GHA retrieval
-cp /etc/trusttunnel/server.crt /root/server.crt
-cp /etc/trusttunnel/server.key /root/server.key
+cp "$CERT_PATH" /root/server.crt
+cp "$KEY_PATH" /root/server.key
 
 # Ensure backups
 cp /root/client.yaml /root/client.toml

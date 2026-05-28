@@ -73,25 +73,24 @@ jobs:
           TARGET_ZONE="${{ env.GCP_ZONE }}"
           IMAGE_TAG="${{ env.GCP_REGION }}-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/trusttunnel-repo/vpn:latest"
           
+          # Configure Docker to use gcloud
+          gcloud auth configure-docker ${{ env.GCP_REGION }}-docker.pkg.dev --quiet
+          
+          # Ensure Artifact Registry Repository Exists
+          gcloud artifacts repositories describe trusttunnel-repo --location=${{ env.GCP_REGION }} >/dev/null 2>&1 || \
+          gcloud artifacts repositories create trusttunnel-repo \
+            --repository-format=docker \
+            --location=${{ env.GCP_REGION }} \
+            --description="TrustTunnel Docker Repository"
+          
+          # Always build and push container image to ensure latest updates are applied
+          echo "Building and pushing container image..."
+          docker build -t "$IMAGE_TAG" -f Dockerfile.prod .
+          docker push "$IMAGE_TAG"
+          
           # Check if target instance exists
           if ! gcloud compute instances describe "$TARGET_INSTANCE" --zone="$TARGET_ZONE" >/dev/null 2>&1; then
-              echo "Target instance $TARGET_INSTANCE does not exist in $TARGET_ZONE. Building image and creating VM..."
-              
-              # Configure Docker to use gcloud
-              gcloud auth configure-docker ${{ env.GCP_REGION }}-docker.pkg.dev --quiet
-              
-              # Ensure Artifact Registry Repository Exists
-              gcloud artifacts repositories describe trusttunnel-repo --location=${{ env.GCP_REGION }} >/dev/null 2>&1 || \
-              gcloud artifacts repositories create trusttunnel-repo \
-                --repository-format=docker \
-                --location=${{ env.GCP_REGION }} \
-                --description="TrustTunnel Docker Repository"
-              
-              # Build and push container image
-              docker build -t "$IMAGE_TAG" -f Dockerfile.prod .
-              docker push "$IMAGE_TAG"
-              
-              # Create the VM instance (pre-deployed configuration)
+              echo "Target instance $TARGET_INSTANCE does not exist in $TARGET_ZONE. Creating VM..."
               gcloud compute instances create-with-container "$TARGET_INSTANCE" \
                 --zone="$TARGET_ZONE" \
                 --machine-type=e2-micro \
@@ -106,7 +105,6 @@ jobs:
                 --metadata=ddns_hostname="${{ env.DDNS_HOSTNAME }}",ddns_username="${{ env.DDNS_USERNAME }}",ddns_password="${{ env.DDNS_PASSWORD }}",vpn_password="${{ env.VPN_PASSWORD }}",vpn_cert="${{ env.VPN_CERT }}",vpn_key="${{ env.VPN_KEY }}"
           else
               echo "Target instance $TARGET_INSTANCE already exists. Updating metadata..."
-              
               gcloud compute instances add-metadata "$TARGET_INSTANCE" \
                 --zone="$TARGET_ZONE" \
                 --metadata=ddns_hostname="${{ env.DDNS_HOSTNAME }}",ddns_username="${{ env.DDNS_USERNAME }}",ddns_password="${{ env.DDNS_PASSWORD }}",vpn_password="${{ env.VPN_PASSWORD }}",vpn_cert="${{ env.VPN_CERT }}",vpn_key="${{ env.VPN_KEY }}"
