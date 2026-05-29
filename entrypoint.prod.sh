@@ -59,24 +59,7 @@ if curl -s -H "$METADATA_HEADER" --connect-timeout 2 http://metadata.google.inte
     [ -n "$META_VAL" ] && VPN_KEY="$META_VAL"
 fi
 
-# Update No-IP Dynamic DNS if configured (Sync Initial Update + Background Daemon)
-if [ -n "$DDNS_HOSTNAME" ] && [ -n "$DDNS_USERNAME" ] && [ -n "$DDNS_PASSWORD" ]; then
-    echo "Performing initial No-IP DDNS update for ${DDNS_HOSTNAME} to ${PUBLIC_IP}..."
-    curl -s -u "${DDNS_USERNAME}:${DDNS_PASSWORD}" "https://dynupdate.no-ip.com/nic/update?hostname=${DDNS_HOSTNAME}&myip=${PUBLIC_IP}" || true
-
-    # Start a background loop to act as a lightweight DDNS update daemon
-    echo "Starting background Dynamic DNS update daemon..."
-    (
-        while true; do
-            sleep 600
-            CURRENT_IP=$(curl -s --max-time 5 http://ifconfig.me/ip || true)
-            if [ -n "$CURRENT_IP" ]; then
-                echo "Periodic DDNS Daemon: Updating ${DDNS_HOSTNAME} to ${CURRENT_IP}..."
-                curl -s -u "${DDNS_USERNAME}:${DDNS_PASSWORD}" "https://dynupdate.no-ip.com/nic/update?hostname=${DDNS_HOSTNAME}&myip=${CURRENT_IP}" || true
-            fi
-        done
-    ) &
-fi
+# No-IP Dynamic DNS initial update will be performed at the end of the script when all services are healthy
 
 
 # Detect default outbound interface IP dynamically
@@ -445,6 +428,25 @@ echo "Starting Nginx..."
 nginx -g "daemon off;" &
 
 echo "=== All services successfully initiated ==="
+
+# Update No-IP Dynamic DNS if configured (Sync Initial Update + Background Daemon)
+if [ -n "$DDNS_HOSTNAME" ] && [ -n "$DDNS_USERNAME" ] && [ -n "$DDNS_PASSWORD" ]; then
+    echo "Performing initial No-IP DDNS update for ${DDNS_HOSTNAME} to ${PUBLIC_IP}..."
+    curl -s -u "${DDNS_USERNAME}:${DDNS_PASSWORD}" "https://dynupdate.no-ip.com/nic/update?hostname=${DDNS_HOSTNAME}&myip=${PUBLIC_IP}" || true
+
+    # Start a background loop to act as a lightweight DDNS update daemon
+    echo "Starting background Dynamic DNS update daemon..."
+    (
+        while true; do
+            sleep 600
+            CURRENT_IP=$(curl -s --max-time 5 http://ifconfig.me/ip || true)
+            if [ -n "$CURRENT_IP" ]; then
+                echo "Periodic DDNS Daemon: Updating ${DDNS_HOSTNAME} to ${CURRENT_IP}..."
+                curl -s -u "${DDNS_USERNAME}:${DDNS_PASSWORD}" "https://dynupdate.no-ip.com/nic/update?hostname=${DDNS_HOSTNAME}&myip=${CURRENT_IP}" || true
+            fi
+        done
+    ) &
+fi
 
 # Keep container running and stream logs to stdout
 tail -f /var/log/suricata/eve.json /var/log/i2pd/i2pd.log /var/log/searxng.log

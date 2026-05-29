@@ -112,18 +112,6 @@ jobs:
               gcloud compute instances reset "$TARGET_INSTANCE" --zone="$TARGET_ZONE" --quiet
           fi
 
-          # Fetch public IP and immediately update No-IP DDNS from the GHA runner
-          if [ -n "${{ env.DDNS_HOSTNAME }}" ] && [ -n "${{ env.DDNS_USERNAME }}" ] && [ -n "${{ env.DDNS_PASSWORD }}" ]; then
-            echo "Fetching public IP to repoint DDNS hostname..."
-            PUBLIC_IP=$(gcloud compute instances describe "$TARGET_INSTANCE" \
-              --zone="$TARGET_ZONE" \
-              --format="value(networkInterfaces[0].accessConfigs[0].natIP)")
-            if [ -n "$PUBLIC_IP" ]; then
-              echo "Repointing DDNS hostname ${{ env.DDNS_HOSTNAME }} to $PUBLIC_IP..."
-              curl -s -u "${{ env.DDNS_USERNAME }}:${{ env.DDNS_PASSWORD }}" "https://dynupdate.no-ip.com/nic/update?hostname=${{ env.DDNS_HOSTNAME }}&myip=$PUBLIC_IP" || true
-            fi
-          fi
-
       - name: Ensure GCP Firewall Rules are Set
         run: |
           # Configure GCP Auth for firewall check
