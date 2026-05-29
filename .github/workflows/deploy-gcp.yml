@@ -56,15 +56,16 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     steps:
-      - name: Authenticate with GCP and Deploy
+      - name: Authenticate with GCP
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - name: Deploy GCE VM (Upsert & Start/Stop)
         run: |
           TARGET_INSTANCE="trusttunnel-vpn-${{ env.GCP_REGION }}"
           TARGET_ZONE="${{ env.GCP_ZONE }}"
           IMAGE_TAG="us-central1-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/trusttunnel-repo/vpn:latest"
-          
-          # Auth
-          echo "${{ secrets.GCP_SA_KEY }}" > /tmp/sa_key.json
-          gcloud auth activate-service-account --key-file=/tmp/sa_key.json --project="${{ secrets.GCP_PROJECT_ID }}"
           
           # Check if target instance exists, create if missing, else update metadata
           if ! gcloud compute instances describe "$TARGET_INSTANCE" --zone="$TARGET_ZONE" >/dev/null 2>&1; then
@@ -114,9 +115,6 @@ jobs:
 
       - name: Ensure GCP Firewall Rules are Set
         run: |
-          # Configure GCP Auth for firewall check
-          echo "${{ secrets.GCP_SA_KEY }}" > /tmp/sa_key.json
-          gcloud auth activate-service-account --key-file=/tmp/sa_key.json --project="${{ secrets.GCP_PROJECT_ID }}"
           if ! gcloud compute firewall-rules describe allow-trusttunnel >/dev/null 2>&1; then
             echo "Creating firewall rule to allow TrustTunnel port 443..."
             gcloud compute firewall-rules create allow-trusttunnel \
