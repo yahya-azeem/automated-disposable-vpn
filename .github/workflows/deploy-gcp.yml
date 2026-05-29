@@ -67,26 +67,11 @@ jobs:
       - name: Set up Cloud SDK
         uses: google-github-actions/setup-gcloud@v2
 
-      - name: Build, Push, and Deploy GCE VM (Upsert & Start/Stop)
+      - name: Deploy GCE VM (Upsert & Start/Stop)
         run: |
           TARGET_INSTANCE="trusttunnel-vpn-${{ env.GCP_REGION }}"
           TARGET_ZONE="${{ env.GCP_ZONE }}"
-          IMAGE_TAG="${{ env.GCP_REGION }}-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/trusttunnel-repo/vpn:latest"
-          
-          # Configure Docker to use gcloud
-          gcloud auth configure-docker ${{ env.GCP_REGION }}-docker.pkg.dev --quiet
-          
-          # Ensure Artifact Registry Repository Exists
-          gcloud artifacts repositories describe trusttunnel-repo --location=${{ env.GCP_REGION }} >/dev/null 2>&1 || \
-          gcloud artifacts repositories create trusttunnel-repo \
-            --repository-format=docker \
-            --location=${{ env.GCP_REGION }} \
-            --description="TrustTunnel Docker Repository"
-          
-          # Always build and push container image to ensure latest updates are applied
-          echo "Building and pushing container image..."
-          docker build -t "$IMAGE_TAG" -f Dockerfile.prod .
-          docker push "$IMAGE_TAG"
+          IMAGE_TAG="us-central1-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/trusttunnel-repo/vpn:latest"
           
           # Check if target instance exists
           if ! gcloud compute instances describe "$TARGET_INSTANCE" --zone="$TARGET_ZONE" >/dev/null 2>&1; then

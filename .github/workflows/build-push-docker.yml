@@ -1,0 +1,51 @@
+name: Build and Push Docker Image to GCP
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'Dockerfile.prod'
+      - 'entrypoint.prod.sh'
+      - 'ansible/roles/trusttunnel/files/log_api.py'
+      - '.github/workflows/build-push-docker.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: build-push-docker
+  cancel-in-progress: true
+
+jobs:
+  build-push:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Authenticate with GCP
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Build and Push Image
+        run: |
+          GCP_REGION="us-central1"
+          IMAGE_TAG="us-central1-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/trusttunnel-repo/vpn:latest"
+          
+          # Configure Docker to use gcloud
+          gcloud auth configure-docker $GCP_REGION-docker.pkg.dev --quiet
+          
+          # Ensure Artifact Registry Repository Exists
+          gcloud artifacts repositories describe trusttunnel-repo --location=$GCP_REGION >/dev/null 2>&1 || \
+          gcloud artifacts repositories create trusttunnel-repo \
+            --repository-format=docker \
+            --location=$GCP_REGION \
+            --description="TrustTunnel Docker Repository"
+          
+          # Build and push container image
+          echo "Building and pushing container image..."
+          docker build -t "$IMAGE_TAG" -f Dockerfile.prod .
+          docker push "$IMAGE_TAG"
