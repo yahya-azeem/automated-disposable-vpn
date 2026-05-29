@@ -56,26 +56,19 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout Code
-        uses: actions/checkout@v4
-
-      - name: Authenticate with GCP
-        uses: google-github-actions/auth@v2
-        with:
-          credentials_json: ${{ secrets.GCP_SA_KEY }}
-
-      - name: Set up Cloud SDK
-        uses: google-github-actions/setup-gcloud@v2
-
-      - name: Deploy GCE VM (Upsert & Start/Stop)
+      - name: Authenticate with GCP and Deploy
         run: |
           TARGET_INSTANCE="trusttunnel-vpn-${{ env.GCP_REGION }}"
           TARGET_ZONE="${{ env.GCP_ZONE }}"
           IMAGE_TAG="us-central1-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/trusttunnel-repo/vpn:latest"
           
-          # Check if target instance exists
+          # Auth
+          echo "${{ secrets.GCP_SA_KEY }}" > /tmp/sa_key.json
+          gcloud auth activate-service-account --key-file=/tmp/sa_key.json --project="${{ secrets.GCP_PROJECT_ID }}"
+          
+          # Check if target instance exists, create if missing, else update metadata
           if ! gcloud compute instances describe "$TARGET_INSTANCE" --zone="$TARGET_ZONE" >/dev/null 2>&1; then
-              echo "Target instance $TARGET_INSTANCE does not exist in $TARGET_ZONE. Creating VM..."
+              echo "Creating target instance $TARGET_INSTANCE..."
               gcloud compute instances create-with-container "$TARGET_INSTANCE" \
                 --zone="$TARGET_ZONE" \
                 --machine-type=e2-micro \
@@ -89,13 +82,13 @@ jobs:
                 --boot-disk-type=pd-standard \
                 --metadata=ddns_hostname="${{ env.DDNS_HOSTNAME }}",ddns_username="${{ env.DDNS_USERNAME }}",ddns_password="${{ env.DDNS_PASSWORD }}",vpn_password="${{ env.VPN_PASSWORD }}",vpn_cert="${{ env.VPN_CERT }}",vpn_key="${{ env.VPN_KEY }}"
           else
-              echo "Target instance $TARGET_INSTANCE already exists. Updating metadata..."
+              echo "Updating metadata for target instance $TARGET_INSTANCE..."
               gcloud compute instances add-metadata "$TARGET_INSTANCE" \
                 --zone="$TARGET_ZONE" \
                 --metadata=ddns_hostname="${{ env.DDNS_HOSTNAME }}",ddns_username="${{ env.DDNS_USERNAME }}",ddns_password="${{ env.DDNS_PASSWORD }}",vpn_password="${{ env.VPN_PASSWORD }}",vpn_cert="${{ env.VPN_CERT }}",vpn_key="${{ env.VPN_KEY }}"
           fi
 
-          # Find and stop other running instances asynchronously
+          # Stop other running instances asynchronously to satisfy GCP Always Free constraints
           RUNNING_INSTANCES=$(gcloud compute instances list \
             --filter="name ~ ^trusttunnel-vpn- AND name != $TARGET_INSTANCE AND status = RUNNING" \
             --format="value(name,zone)" 2>/dev/null)
@@ -119,63 +112,29 @@ jobs:
               gcloud compute instances reset "$TARGET_INSTANCE" --zone="$TARGET_ZONE" --quiet
           fi
 
+          # Fetch public IP and immediately update No-IP DDNS from the GHA runner
+          if [ -n "${{ env.DDNS_HOSTNAME }}" ] && [ -n "${{ env.DDNS_USERNAME }}" ] && [ -n "${{ env.DDNS_PASSWORD }}" ]; then
+            echo "Fetching public IP to repoint DDNS hostname..."
+            PUBLIC_IP=$(gcloud compute instances describe "$TARGET_INSTANCE" \
+              --zone="$TARGET_ZONE" \
+              --format="value(networkInterfaces[0].accessConfigs[0].natIP)")
+            if [ -n "$PUBLIC_IP" ]; then
+              echo "Repointing DDNS hostname ${{ env.DDNS_HOSTNAME }} to $PUBLIC_IP..."
+              curl -s -u "${{ env.DDNS_USERNAME }}:${{ env.DDNS_PASSWORD }}" "https://dynupdate.no-ip.com/nic/update?hostname=${{ env.DDNS_HOSTNAME }}&myip=$PUBLIC_IP" || true
+            fi
+          fi
+
       - name: Ensure GCP Firewall Rules are Set
         run: |
+          # Configure GCP Auth for firewall check
+          echo "${{ secrets.GCP_SA_KEY }}" > /tmp/sa_key.json
+          gcloud auth activate-service-account --key-file=/tmp/sa_key.json --project="${{ secrets.GCP_PROJECT_ID }}"
           if ! gcloud compute firewall-rules describe allow-trusttunnel >/dev/null 2>&1; then
             echo "Creating firewall rule to allow TrustTunnel port 443..."
             gcloud compute firewall-rules create allow-trusttunnel \
               --allow=tcp:443 \
-               --target-tags=trusttunnel-vpn \
+              --target-tags=trusttunnel-vpn \
               --description="Allow TrustTunnel VPN TCP port 443"
           else
             echo "Firewall rule already exists."
           fi
-
-      - name: Wait for VPN Initialization
-        run: |
-          TARGET_INSTANCE="trusttunnel-vpn-${{ env.GCP_REGION }}"
-          echo "Waiting for VPN container on $TARGET_INSTANCE to initialize and generate client profile..."
-          for i in {1..18}; do
-            if gcloud compute ssh "$TARGET_INSTANCE" \
-              --zone="${{ env.GCP_ZONE }}" \
-              --quiet \
-              --command="sudo test -f /var/lib/trusttunnel/client.yaml" 2>/dev/null; then
-                echo "Client configuration detected!"
-                exit 0
-            fi
-            echo "Waiting for client.yaml... (attempt $i/18)"
-            sleep 10
-          done
-          echo "ERROR: VPN initialization timed out (client.yaml not found)."
-          exit 1
-
-      - name: Retrieve Client Configuration
-        run: |
-          TARGET_INSTANCE="trusttunnel-vpn-${{ env.GCP_REGION }}"
-          echo "Retrieving client configuration from $TARGET_INSTANCE..."
-          gcloud compute ssh "$TARGET_INSTANCE" \
-            --zone="${{ env.GCP_ZONE }}" \
-            --quiet \
-            --command="sudo cat /var/lib/trusttunnel/client.yaml" > client.yaml
-          
-          gcloud compute ssh "$TARGET_INSTANCE" \
-            --zone="${{ env.GCP_ZONE }}" \
-            --quiet \
-            --command="sudo cat /var/lib/trusttunnel/server.crt" > server.crt || echo "" > server.crt
-          
-          gcloud compute ssh "$TARGET_INSTANCE" \
-            --zone="${{ env.GCP_ZONE }}" \
-            --quiet \
-            --command="sudo cat /var/lib/trusttunnel/server.key" > server.key || echo "" > server.key
-          
-          echo "Successfully retrieved configurations."
-
-      - name: Archive TrustTunnel Client Config
-        uses: actions/upload-artifact@v4
-        with:
-          name: TrustTunnel-Client-Config
-          path: |
-            client.yaml
-            server.crt
-            server.key
-          retention-days: 1

@@ -288,7 +288,11 @@
       const configArtifact = artifacts.find((a: any) => a.name === 'TrustTunnel-Client-Config');
 
       if (!configArtifact) {
-        throw new Error('Client config artifact not found. The server may have failed to export config.');
+        console.log('No client config artifact found. Skipping extraction (Ultra-Fast Region Switch active).');
+        workflowStatus = 'COMPLETED';
+        successMessage = 'VPN successfully shifted region!';
+        currentAction = 'idle';
+        return;
       }
 
       // 2. Download ZIP file
