@@ -35,7 +35,7 @@ RUN git clone --depth 1 https://github.com/searxng/searxng.git /opt/searxng && \
     python3 -m venv venv && \
     ./venv/bin/pip install -U pip setuptools cachetools wheel && \
     ./venv/bin/pip install -r requirements.txt && \
-    ./venv/bin/pip install -e .
+    ./venv/bin/pip install --no-build-isolation -e .
 
 # 3. Download and install AdGuardHome
 RUN mkdir -p /opt/adguardhome && \
