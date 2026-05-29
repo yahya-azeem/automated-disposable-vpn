@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import JSZip from 'jszip';
+  import forge from 'node-forge';
 
   // Config State
   let githubToken = '';
@@ -108,13 +109,129 @@
     setTimeout(() => { successMessage = ''; }, 2000);
   }
 
-  function clearPersistentCert() {
+  // Helper to generate a 2048-bit persistent TLS certificate and key in the browser
+  async function generatePersistentKeyPair(hostname: string): Promise<{ cert: string, key: string }> {
+    return new Promise((resolve, reject) => {
+      try {
+        forge.pki.rsa.generateKeyPair({ bits: 2048, workers: -1 }, (err, keys) => {
+          if (err) {
+            reject(err);
+            return;
+          }
+          
+          const cert = forge.pki.createCertificate();
+          cert.publicKey = keys.publicKey;
+          cert.serialNumber = '01' + forge.util.bytesToHex(forge.random.getBytesSync(19));
+          cert.validity.notBefore = new Date();
+          cert.validity.notAfter = new Date();
+          cert.validity.notAfter.setFullYear(cert.validity.notBefore.getFullYear() + 10); // 10 years
+
+          const attrs = [{
+            name: 'commonName',
+            value: hostname
+          }];
+          cert.setSubject(attrs);
+          cert.setIssuer(attrs);
+
+          cert.setExtensions([
+            {
+              name: 'basicConstraints',
+              cA: false
+            },
+            {
+              name: 'keyUsage',
+              keyEncipherment: true,
+              dataEncipherment: true
+            },
+            {
+              name: 'extKeyUsage',
+              serverAuth: true
+            },
+            {
+              name: 'subjectAltName',
+              altNames: [
+                { type: 2, value: hostname },
+                { type: 2, value: 'google.com' },
+                { type: 2, value: '*.google.com' },
+                { type: 2, value: 'www.google.com' },
+                { type: 2, value: 'bing.com' },
+                { type: 2, value: '*.bing.com' },
+                { type: 2, value: 'www.bing.com' },
+                { type: 2, value: 'duckduckgo.com' },
+                { type: 2, value: '*.duckduckgo.com' },
+                { type: 2, value: 'www.duckduckgo.com' },
+                { type: 2, value: 'startpage.com' },
+                { type: 2, value: '*.startpage.com' },
+                { type: 2, value: 'www.startpage.com' },
+                { type: 2, value: 'yahoo.com' },
+                { type: 2, value: '*.yahoo.com' },
+                { type: 2, value: 'www.yahoo.com' },
+                { type: 2, value: 'brave.com' },
+                { type: 2, value: '*.brave.com' },
+                { type: 2, value: 'search.brave.com' },
+                { type: 2, value: 'yandex.com' },
+                { type: 2, value: '*.yandex.com' },
+                { type: 2, value: 'yandex.ru' },
+                { type: 2, value: '*.yandex.ru' },
+                { type: 2, value: 'i2p' },
+                { type: 2, value: '*.i2p' }
+              ]
+            }
+          ]);
+
+          cert.sign(keys.privateKey, forge.md.sha256.create());
+
+          const pemCert = forge.pki.certificateToPem(cert);
+          const pemKey = forge.pki.privateKeyToPem(keys.privateKey);
+
+          resolve({ cert: pemCert.trim(), key: pemKey.trim() });
+        });
+      } catch (e) {
+        reject(e);
+      }
+    });
+  }
+
+  // Calculate fingerprint of the certificate
+  let calculatedFingerprint = '';
+  function computeFingerprint(certPem: string) {
+    try {
+      if (!certPem) {
+        calculatedFingerprint = '';
+        return;
+      }
+      const cert = forge.pki.certificateFromPem(certPem);
+      const der = forge.asn1.toDer(forge.pki.certificateToAsn1(cert)).getBytes();
+      const md = forge.md.sha256.create();
+      md.update(der);
+      calculatedFingerprint = md.digest().toHex().toUpperCase();
+    } catch (e) {
+      console.error('Error computing fingerprint:', e);
+      calculatedFingerprint = '';
+    }
+  }
+
+  $: computeFingerprint(vpnCert || serverCert);
+
+  async function clearPersistentCert() {
     vpnCert = '';
     vpnKey = '';
     localStorage.removeItem('tt_vpn_cert');
     localStorage.removeItem('tt_vpn_key');
-    successMessage = 'Persistent certificate cleared. A new one will be generated on next region switch.';
-    setTimeout(() => { successMessage = ''; }, 3000);
+    successMessage = 'Resetting certificate...';
+    try {
+      const { cert, key } = await generatePersistentKeyPair(ddnsHostname || 'amass.hopto.org');
+      vpnCert = cert;
+      vpnKey = key;
+      localStorage.setItem('tt_vpn_cert', vpnCert);
+      localStorage.setItem('tt_vpn_key', vpnKey);
+      successMessage = 'Persistent certificate reset and regenerated successfully.';
+      setTimeout(() => { successMessage = ''; }, 3000);
+    } catch (err) {
+      console.error(err);
+      errorMessage = 'Failed to generate new certificate.';
+      setTimeout(() => { errorMessage = ''; }, 3000);
+    }
   }
 
   // UI State
@@ -135,7 +252,7 @@
   let currentRunId: number | null = null;
 
   // Load configuration on mount
-  onMount(() => {
+  onMount(async () => {
     githubToken = localStorage.getItem('tt_github_token') || '';
     githubRepo = localStorage.getItem('tt_github_repo') || 'yahya-azeem/automated-disposable-vpn';
     ddnsHostname = localStorage.getItem('tt_ddns_hostname') || 'amass.hopto.org';
@@ -144,21 +261,54 @@
     vpnPassword = localStorage.getItem('tt_vpn_password') || 'trusttunnel-secret-passphrase';
     vpnCert = localStorage.getItem('tt_vpn_cert') || '';
     vpnKey = localStorage.getItem('tt_vpn_key') || '';
+
+    // Auto-generate keypair if missing to guarantee details display immediately
+    if (!vpnCert || !vpnKey) {
+      console.log('No persistent certificate found. Generating initial certificate keypair...');
+      try {
+        const { cert, key } = await generatePersistentKeyPair(ddnsHostname || 'amass.hopto.org');
+        vpnCert = cert;
+        vpnKey = key;
+        localStorage.setItem('tt_vpn_cert', vpnCert);
+        localStorage.setItem('tt_vpn_key', vpnKey);
+      } catch (err) {
+        console.error('Failed to generate initial certificate keypair:', err);
+      }
+    }
   });
 
   // Save config
-  function saveSettings() {
+  async function saveSettings() {
+    const oldHostname = localStorage.getItem('tt_ddns_hostname') || 'amass.hopto.org';
+
     localStorage.setItem('tt_github_token', githubToken);
     localStorage.setItem('tt_github_repo', githubRepo);
     localStorage.setItem('tt_ddns_hostname', ddnsHostname);
     localStorage.setItem('tt_ddns_username', ddnsUsername);
     localStorage.setItem('tt_ddns_password', ddnsPassword);
     localStorage.setItem('tt_vpn_password', vpnPassword);
-    localStorage.setItem('tt_vpn_cert', vpnCert);
-    localStorage.setItem('tt_vpn_key', vpnKey);
     
-    successMessage = 'Settings saved successfully!';
-    setTimeout(() => { successMessage = ''; }, 3000);
+    // If hostname changed or cert missing, automatically regenerate the certificate
+    if (ddnsHostname !== oldHostname || !vpnCert || !vpnKey) {
+      successMessage = 'Settings saved. Regenerating TLS certificate for new hostname...';
+      try {
+        const { cert, key } = await generatePersistentKeyPair(ddnsHostname || 'amass.hopto.org');
+        vpnCert = cert;
+        vpnKey = key;
+        localStorage.setItem('tt_vpn_cert', vpnCert);
+        localStorage.setItem('tt_vpn_key', vpnKey);
+        successMessage = 'Settings saved and certificate successfully updated!';
+      } catch (err) {
+        console.error(err);
+        errorMessage = 'Failed to update certificate for new hostname.';
+      }
+    } else {
+      localStorage.setItem('tt_vpn_cert', vpnCert);
+      localStorage.setItem('tt_vpn_key', vpnKey);
+      successMessage = 'Settings saved successfully!';
+    }
+    
+    setTimeout(() => { successMessage = ''; errorMessage = ''; }, 3000);
   }
 
   // Clear messages
@@ -742,7 +892,7 @@
             {/if}
           </div>
 
-          {#if clientYaml}
+          {#if clientYaml || vpnCert}
             <div class="connection-guide-card">
               <h2>VPN Connection Parameters</h2>
               <p class="guide-subtitle">Use these details to configure the TrustTunnel VPN client manually on your device.</p>
@@ -751,8 +901,8 @@
                 <div class="detail-item">
                   <span class="detail-label">Server (Hostname)</span>
                   <div class="detail-value-wrapper">
-                    <span class="detail-value">{parsedHost}</span>
-                    <button class="copy-small-btn" on:click={() => copyText(parsedHost, 'host')}>
+                    <span class="detail-value">{parsedHost || ddnsHostname || 'amass.hopto.org'}</span>
+                    <button class="copy-small-btn" on:click={() => copyText(parsedHost || ddnsHostname || 'amass.hopto.org', 'host')}>
                       {copiedField === 'host' ? 'Copied' : 'Copy'}
                     </button>
                   </div>
@@ -761,8 +911,8 @@
                 <div class="detail-item">
                   <span class="detail-label">Port</span>
                   <div class="detail-value-wrapper">
-                    <span class="detail-value">{parsedPort}</span>
-                    <button class="copy-small-btn" on:click={() => copyText(parsedPort, 'port')}>
+                    <span class="detail-value">{parsedPort || '443'}</span>
+                    <button class="copy-small-btn" on:click={() => copyText(parsedPort || '443', 'port')}>
                       {copiedField === 'port' ? 'Copied' : 'Copy'}
                     </button>
                   </div>
@@ -771,8 +921,8 @@
                 <div class="detail-item">
                   <span class="detail-label">Username</span>
                   <div class="detail-value-wrapper">
-                    <span class="detail-value">{parsedUsername}</span>
-                    <button class="copy-small-btn" on:click={() => copyText(parsedUsername, 'username')}>
+                    <span class="detail-value">{parsedUsername || 'client1'}</span>
+                    <button class="copy-small-btn" on:click={() => copyText(parsedUsername || 'client1', 'username')}>
                       {copiedField === 'username' ? 'Copied' : 'Copy'}
                     </button>
                   </div>
@@ -781,8 +931,8 @@
                 <div class="detail-item">
                   <span class="detail-label">Password</span>
                   <div class="detail-value-wrapper">
-                    <span class="detail-value">{parsedPassword}</span>
-                    <button class="copy-small-btn" on:click={() => copyText(parsedPassword, 'password')}>
+                    <span class="detail-value">{parsedPassword || vpnPassword || 'trusttunnel-secret-passphrase'}</span>
+                    <button class="copy-small-btn" on:click={() => copyText(parsedPassword || vpnPassword || 'trusttunnel-secret-passphrase', 'password')}>
                       {copiedField === 'password' ? 'Copied' : 'Copy'}
                     </button>
                   </div>
@@ -791,67 +941,71 @@
                 <div class="detail-item">
                   <span class="detail-label">DNS Server</span>
                   <div class="detail-value-wrapper">
-                    <span class="detail-value">{parsedDns}</span>
-                    <button class="copy-small-btn" on:click={() => copyText(parsedDns, 'dns')}>
+                    <span class="detail-value">{parsedDns || '10.8.0.1'}</span>
+                    <button class="copy-small-btn" on:click={() => copyText(parsedDns || '10.8.0.1', 'dns')}>
                       {copiedField === 'dns' ? 'Copied' : 'Copy'}
                     </button>
                   </div>
                 </div>
 
-                <div class="detail-item full-width">
-                  <span class="detail-label">TLS Fingerprint</span>
-                  <div class="detail-value-wrapper">
-                    <span class="detail-value fingerprint-value">{parsedFingerprint}</span>
-                    <button class="copy-small-btn" on:click={() => copyText(parsedFingerprint, 'fingerprint')}>
-                      {copiedField === 'fingerprint' ? 'Copied' : 'Copy'}
-                    </button>
+                {#if parsedFingerprint || calculatedFingerprint}
+                  <div class="detail-item full-width">
+                    <span class="detail-label">TLS Fingerprint</span>
+                    <div class="detail-value-wrapper">
+                      <span class="detail-value fingerprint-value">{parsedFingerprint || calculatedFingerprint}</span>
+                      <button class="copy-small-btn" on:click={() => copyText(parsedFingerprint || calculatedFingerprint, 'fingerprint')}>
+                        {copiedField === 'fingerprint' ? 'Copied' : 'Copy'}
+                      </button>
+                    </div>
                   </div>
-                </div>
+                {/if}
               </div>
             </div>
 
-            <div class="output-block-header">
-              <h2>Generated VPN Client Configuration</h2>
-              <div class="actions">
-                <button 
-                  class="action-icon-btn" 
-                  on:click={() => copyToClipboard(clientYaml, 'yaml')}
-                  title="Copy to Clipboard"
-                >
-                  {copiedYaml ? 'Copied!' : 'Copy'}
-                </button>
-                <button 
-                  class="action-icon-btn" 
-                  on:click={() => downloadTextFile('client.yaml', clientYaml)}
-                  title="Download File"
-                >
-                  Download YAML
-                </button>
-              </div>
-            </div>
-            <pre class="code-output"><code>{clientYaml}</code></pre>
-
-            {#if serverCert}
+            {#if serverCert || vpnCert}
               <div class="output-block-header cert-header">
                 <h2>Server TLS Certificate (PEM)</h2>
                 <div class="actions">
                   <button 
                     class="action-icon-btn" 
-                    on:click={() => copyToClipboard(serverCert, 'cert')}
+                    on:click={() => copyToClipboard(serverCert || vpnCert, 'cert')}
                     title="Copy Certificate"
                   >
                     {copiedCert ? 'Copied!' : 'Copy'}
                   </button>
                   <button 
                     class="action-icon-btn" 
-                    on:click={() => downloadTextFile('server.crt', serverCert)}
+                    on:click={() => downloadTextFile('server.crt', serverCert || vpnCert)}
                     title="Download Certificate File"
                   >
                     Download CRT
                   </button>
                 </div>
               </div>
-              <pre class="code-output cert-code"><code>{serverCert}</code></pre>
+              <pre class="code-output cert-code"><code>{serverCert || vpnCert}</code></pre>
+            {/if}
+
+            {#if clientYaml}
+              <div class="output-block-header">
+                <h2>Generated VPN Client Configuration</h2>
+                <div class="actions">
+                  <button 
+                    class="action-icon-btn" 
+                    on:click={() => copyToClipboard(clientYaml, 'yaml')}
+                    title="Copy to Clipboard"
+                  >
+                    {copiedYaml ? 'Copied!' : 'Copy'}
+                  </button>
+                  <button 
+                    class="action-icon-btn" 
+                    on:click={() => downloadTextFile('client.yaml', clientYaml)}
+                    title="Download File"
+                  >
+                    Download YAML
+                  </button>
+                </div>
+              </div>
+              <pre class="code-output"><code>{clientYaml}</code></pre>
             {/if}
           {:else if currentAction === 'idle'}
             <div class="empty-state">
