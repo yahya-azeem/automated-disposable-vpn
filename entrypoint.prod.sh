@@ -79,6 +79,17 @@ if [ -n "$DDNS_HOSTNAME" ] && [ -n "$DDNS_USERNAME" ] && [ -n "$DDNS_PASSWORD" ]
 fi
 
 
+# Detect default outbound interface IP dynamically
+DEFAULT_OUT_IF=$(ip route show default | awk '{print $5}' | head -n 1)
+if [ -z "$DEFAULT_OUT_IF" ]; then
+    DEFAULT_OUT_IF="eth0"
+fi
+DEFAULT_IP=$(ip -o -4 addr show dev "$DEFAULT_OUT_IF" | awk '{print $4}' | cut -d/ -f1 | head -n 1)
+if [ -z "$DEFAULT_IP" ]; then
+    DEFAULT_IP="0.0.0.0"
+fi
+echo "Detected default outbound interface IP: $DEFAULT_IP"
+
 # Determine certificate and client connection hostname/IP
 CERT_HOSTNAME="trusttunnel.local"
 CLIENT_ADDRESS="${PUBLIC_IP}"
@@ -95,7 +106,7 @@ cd /etc/trusttunnel
 VPN_PASS="${VPN_PASSWORD:-auto-generated-secret-${PUBLIC_IP}}"
 
 /opt/trusttunnel/setup_wizard -m non-interactive \
-    -a 0.0.0.0:443 \
+    -a ${DEFAULT_IP}:443 \
     -c client1:${VPN_PASS} \
     -n ${CERT_HOSTNAME} \
     --cert-type self-signed \
@@ -130,13 +141,43 @@ esac
 echo "Resolved certificate path: $CERT_PATH"
 echo "Resolved private key path: $KEY_PATH"
 
-# Overwrite with persistent certificate if provided
+# Overwrite with persistent certificate if provided, else generate custom cert with Google SANs
 if [ -n "$VPN_CERT" ] && [ -n "$VPN_KEY" ]; then
     echo "Using persistent TLS certificate and key..."
     mkdir -p "$(dirname "$CERT_PATH")"
     mkdir -p "$(dirname "$KEY_PATH")"
     echo "$VPN_CERT" > "$CERT_PATH"
     echo "$VPN_KEY" > "$KEY_PATH"
+else
+    echo "No persistent certificate provided. Generating custom self-signed certificate with Google SANs..."
+    mkdir -p "$(dirname "$CERT_PATH")"
+    mkdir -p "$(dirname "$KEY_PATH")"
+    
+    cat <<EOF > /tmp/openssl.cnf
+[req]
+distinguished_name = req_distinguished_name
+x509_extensions = v3_req
+prompt = no
+
+[req_distinguished_name]
+CN = ${CERT_HOSTNAME}
+
+[v3_req]
+keyUsage = keyEncipherment, dataEncipherment
+extendedKeyUsage = serverAuth
+subjectAltName = @alt_names
+
+[alt_names]
+DNS.1 = ${CERT_HOSTNAME}
+DNS.2 = google.com
+DNS.3 = *.google.com
+DNS.4 = www.google.com
+EOF
+
+    openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
+      -keyout "$KEY_PATH" \
+      -out "$CERT_PATH" \
+      -config /tmp/openssl.cnf
 fi
 
 # 4. Generate client configuration
@@ -160,7 +201,7 @@ cp /root/client.toml /root/conf/client.toml
 echo "Client configuration written to /root/client.yaml:"
 cat /root/client.yaml
 
-# Create AdGuardHome configuration directory and write it
+# Create AdGuardHome configuration directory and write it (with custom DNS rewrite for google.com)
 mkdir -p /opt/adguardhome/AdGuardHome
 cat <<EOF > /opt/adguardhome/AdGuardHome/AdGuardHome.yaml
 schema_version: 34
@@ -187,6 +228,8 @@ filtering:
       url: https://adguardteam.github.io/HostlistsRegistry/assets/filter_27.txt
       name: OISD Blocklist Small
       id: 2
+user_rules:
+  - "||google.com^\$dnsrewrite=10.8.0.1"
 EOF
 
 # 5. Start i2pd
@@ -194,8 +237,8 @@ echo "Starting i2pd daemon..."
 mkdir -p /var/log/i2pd
 i2pd --daemon --log=file --logfile=/var/log/i2pd/i2pd.log
 
-# 6. Start TrustTunnel Server
-echo "Starting TrustTunnel Server..."
+# 6. Start TrustTunnel Server (bound only to default interface IP)
+echo "Starting TrustTunnel Server on $DEFAULT_IP:443..."
 /usr/local/bin/trusttunnel /etc/trusttunnel/vpn.toml /etc/trusttunnel/hosts.toml &
 TRUSTTUNNEL_PID=$!
 sleep 2
@@ -232,7 +275,107 @@ echo "Starting log API HTTP server..."
 sed -i "s/'10.8.0.1'/'0.0.0.0'/g" /usr/local/bin/log_api.py
 python3 /usr/local/bin/log_api.py &
 
+# 11. Configure & Start SearXNG
+echo "Configuring SearXNG..."
+mkdir -p /etc/searxng
+SEARXNG_SECRET=$(openssl rand -hex 32)
+cat <<EOF > /etc/searxng/settings.yml
+use_default_settings: true
+
+server:
+  secret_key: "${SEARXNG_SECRET}"
+  bind_address: "127.0.0.1"
+  port: 8888
+  limiter: false
+
+ui:
+  default_theme: simple
+  theme_args:
+    simple_style: dark
+  search_on_category_select: true
+  hotkeys: vim
+  cache_url: "https://web.archive.org/web/"
+
+outgoing:
+  request_timeout: 30.0
+  max_connection_timeout: 60.0
+
+search:
+  safe_search: 0
+  autocomplete: ""
+
+engines:
+  - name: google
+    disabled: false
+  - name: bing
+    disabled: false
+  - name: brave
+    disabled: false
+  - name: duckduckgo
+    disabled: false
+  - name: startpage
+    disabled: false
+  - name: mojeek
+    disabled: false
+EOF
+
+echo "Starting SearXNG..."
+export SEARXNG_SETTINGS_PATH=/etc/searxng/settings.yml
+/opt/searxng/venv/bin/python /opt/searxng/searx/webapp.py > /var/log/searxng.log 2>&1 &
+
+# 12. Configure & Start Nginx Reverse Proxy (Google.com SSL termination to SearXNG)
+echo "Configuring Nginx reverse proxy..."
+mkdir -p /run/nginx /var/log/nginx
+cat <<EOF > /etc/nginx/nginx.conf
+user nginx;
+worker_processes auto;
+pcre_jit on;
+error_log /var/log/nginx/error.log warn;
+
+events {
+    worker_connections 1024;
+}
+
+http {
+    include /etc/nginx/mime.types;
+    default_type application/octet-stream;
+    sendfile on;
+    keepalive_timeout 65;
+    client_max_body_size 1m;
+
+    # Redirect http://google.com to https://google.com
+    server {
+        listen 10.8.0.1:80;
+        server_name google.com *.google.com www.google.com;
+        return 301 https://\$host\$request_uri;
+    }
+
+    # Terminate SSL for google.com and proxy to SearXNG
+    server {
+        listen 10.8.0.1:443 ssl;
+        server_name google.com *.google.com www.google.com;
+
+        ssl_certificate     ${CERT_PATH};
+        ssl_certificate_key ${KEY_PATH};
+
+        ssl_protocols       TLSv1.2 TLSv1.3;
+        ssl_ciphers         HIGH:!aNULL:!MD5;
+
+        location / {
+            proxy_pass http://127.0.0.1:8888;
+            proxy_set_header Host \$host;
+            proxy_set_header X-Real-IP \$remote_addr;
+            proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto \$scheme;
+        }
+    }
+}
+EOF
+
+echo "Starting Nginx..."
+nginx -g "daemon off;" &
+
 echo "=== All services successfully initiated ==="
 
 # Keep container running and stream logs to stdout
-tail -f /var/log/suricata/eve.json /var/log/i2pd/i2pd.log
+tail -f /var/log/suricata/eve.json /var/log/i2pd/i2pd.log /var/log/searxng.log
