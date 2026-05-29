@@ -495,6 +495,76 @@
     element.click();
     document.body.removeChild(element);
   }
+
+  // Parsed client connection details
+  let parsedHost = '';
+  let parsedPort = '';
+  let parsedServerName = '';
+  let parsedFingerprint = '';
+  let parsedUsername = '';
+  let parsedPassword = '';
+  let parsedDns = '';
+
+  function parseClientYaml(yaml: string) {
+    try {
+      parsedHost = '';
+      parsedPort = '';
+      parsedServerName = '';
+      parsedFingerprint = '';
+      parsedUsername = '';
+      parsedPassword = '';
+      parsedDns = '';
+
+      if (!yaml) return;
+
+      const endpointMatch = yaml.match(/-\s*["']?([^"'\s]+)["']?/);
+      if (endpointMatch && endpointMatch[1]) {
+        const parts = endpointMatch[1].split(':');
+        parsedHost = parts[0];
+        parsedPort = parts[1] || '443';
+      }
+
+      const snMatch = yaml.match(/server_name\s*:\s*["']([^"']+)["']/);
+      if (snMatch && snMatch[1]) {
+        parsedServerName = snMatch[1];
+      }
+
+      const fpMatch = yaml.match(/fingerprint\s*:\s*["']([^"']+)["']/);
+      if (fpMatch && fpMatch[1]) {
+        parsedFingerprint = fpMatch[1];
+      }
+
+      const idMatch = yaml.match(/id\s*:\s*["']([^"']+)["']/);
+      if (idMatch && idMatch[1]) {
+        parsedUsername = idMatch[1];
+      }
+
+      const secretMatch = yaml.match(/secret\s*:\s*["']([^"']+)["']/);
+      if (secretMatch && secretMatch[1]) {
+        parsedPassword = secretMatch[1];
+      }
+
+      const dnsMatch = yaml.match(/dns\s*:\s*["']?([^"'\s]+)["']?/);
+      if (dnsMatch && dnsMatch[1]) {
+        parsedDns = dnsMatch[1];
+      }
+    } catch (err) {
+      console.error('Error parsing client.yaml:', err);
+    }
+  }
+
+  $: parseClientYaml(clientYaml);
+
+  let copiedField = '';
+  async function copyText(text: string, fieldName: string) {
+    try {
+      await navigator.clipboard.writeText(text);
+      copiedField = fieldName;
+      setTimeout(() => copiedField = '', 2000);
+    } catch (e) {
+      alert('Failed to copy to clipboard.');
+    }
+  }
 </script>
 
 <main class="dashboard-root">
@@ -673,6 +743,73 @@
           </div>
 
           {#if clientYaml}
+            <div class="connection-guide-card">
+              <h2>VPN Connection Parameters</h2>
+              <p class="guide-subtitle">Use these details to configure the TrustTunnel VPN client manually on your device.</p>
+              
+              <div class="details-grid">
+                <div class="detail-item">
+                  <span class="detail-label">Server (Hostname)</span>
+                  <div class="detail-value-wrapper">
+                    <span class="detail-value">{parsedHost}</span>
+                    <button class="copy-small-btn" on:click={() => copyText(parsedHost, 'host')}>
+                      {copiedField === 'host' ? 'Copied' : 'Copy'}
+                    </button>
+                  </div>
+                </div>
+
+                <div class="detail-item">
+                  <span class="detail-label">Port</span>
+                  <div class="detail-value-wrapper">
+                    <span class="detail-value">{parsedPort}</span>
+                    <button class="copy-small-btn" on:click={() => copyText(parsedPort, 'port')}>
+                      {copiedField === 'port' ? 'Copied' : 'Copy'}
+                    </button>
+                  </div>
+                </div>
+
+                <div class="detail-item">
+                  <span class="detail-label">Username</span>
+                  <div class="detail-value-wrapper">
+                    <span class="detail-value">{parsedUsername}</span>
+                    <button class="copy-small-btn" on:click={() => copyText(parsedUsername, 'username')}>
+                      {copiedField === 'username' ? 'Copied' : 'Copy'}
+                    </button>
+                  </div>
+                </div>
+
+                <div class="detail-item">
+                  <span class="detail-label">Password</span>
+                  <div class="detail-value-wrapper">
+                    <span class="detail-value">{parsedPassword}</span>
+                    <button class="copy-small-btn" on:click={() => copyText(parsedPassword, 'password')}>
+                      {copiedField === 'password' ? 'Copied' : 'Copy'}
+                    </button>
+                  </div>
+                </div>
+
+                <div class="detail-item">
+                  <span class="detail-label">DNS Server</span>
+                  <div class="detail-value-wrapper">
+                    <span class="detail-value">{parsedDns}</span>
+                    <button class="copy-small-btn" on:click={() => copyText(parsedDns, 'dns')}>
+                      {copiedField === 'dns' ? 'Copied' : 'Copy'}
+                    </button>
+                  </div>
+                </div>
+
+                <div class="detail-item full-width">
+                  <span class="detail-label">TLS Fingerprint</span>
+                  <div class="detail-value-wrapper">
+                    <span class="detail-value fingerprint-value">{parsedFingerprint}</span>
+                    <button class="copy-small-btn" on:click={() => copyText(parsedFingerprint, 'fingerprint')}>
+                      {copiedField === 'fingerprint' ? 'Copied' : 'Copy'}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+
             <div class="output-block-header">
               <h2>Generated VPN Client Configuration</h2>
               <div class="actions">
@@ -1527,5 +1664,94 @@
   .clear-cert-btn:hover {
     background: rgba(239, 68, 68, 0.3) !important;
     color: white !important;
+  }
+
+  /* Connection Parameter Guide Card */
+  .connection-guide-card {
+    background: rgba(255, 255, 255, 0.02);
+    border: 1px solid var(--border-color);
+    border-radius: 12px;
+    padding: 1.5rem;
+    margin-bottom: 2rem;
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+  }
+
+  .connection-guide-card h2 {
+    font-size: 1.15rem;
+    margin: 0 0 0.25rem 0;
+    color: var(--text-primary);
+  }
+
+  .guide-subtitle {
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+    margin: 0 0 1.25rem 0;
+    line-height: 1.4;
+  }
+
+  .details-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 1rem;
+  }
+
+  .detail-item {
+    display: flex;
+    flex-direction: column;
+    background: rgba(0, 0, 0, 0.2);
+    border: 1px solid rgba(255, 255, 255, 0.05);
+    border-radius: 8px;
+    padding: 0.75rem 1rem;
+  }
+
+  .detail-item.full-width {
+    grid-column: 1 / -1;
+  }
+
+  .detail-label {
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+    margin-bottom: 0.35rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+
+  .detail-value-wrapper {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 0.5rem;
+  }
+
+  .detail-value {
+    font-family: 'Fira Code', 'Courier New', Courier, monospace;
+    font-size: 0.9rem;
+    color: var(--accent-blue);
+    word-break: break-all;
+    user-select: all;
+  }
+
+  .fingerprint-value {
+    font-size: 0.75rem;
+    color: #e2e8f0;
+  }
+
+  .copy-small-btn {
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    color: var(--text-primary);
+    padding: 0.25rem 0.6rem;
+    border-radius: 4px;
+    font-size: 0.75rem;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    white-space: nowrap;
+  }
+
+  .copy-small-btn:hover {
+    background: var(--accent-blue);
+    border-color: var(--accent-blue);
+    color: #fff;
   }
 </style>
