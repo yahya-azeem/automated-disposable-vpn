@@ -309,7 +309,7 @@
 
       clientYaml = await yamlFile.async('string');
       
-      // Extract Certificate
+      // Extract Certificate from client.yaml as backup
       const certMatch = clientYaml.match(/certificate\s*=\s*"""([\s\S]*?)"""/);
       if (certMatch && certMatch[1]) {
         serverCert = certMatch[1].trim();
@@ -318,15 +318,20 @@
       // Check if persistent cert and key exist in the artifact zip and save them
       const certFile = zip.file('server.crt');
       const keyFile = zip.file('server.key');
-      if (certFile && keyFile) {
+      if (certFile) {
         const certContent = await certFile.async('string');
-        const keyContent = await keyFile.async('string');
-        if (certContent.trim() && keyContent.trim()) {
-          vpnCert = certContent.trim();
-          vpnKey = keyContent.trim();
-          localStorage.setItem('tt_vpn_cert', vpnCert);
-          localStorage.setItem('tt_vpn_key', vpnKey);
-          console.log('Persistent TLS certificate and key saved to local storage.');
+        if (certContent.trim()) {
+          serverCert = certContent.trim();
+        }
+        if (keyFile) {
+          const keyContent = await keyFile.async('string');
+          if (certContent.trim() && keyContent.trim()) {
+            vpnCert = certContent.trim();
+            vpnKey = keyContent.trim();
+            localStorage.setItem('tt_vpn_cert', vpnCert);
+            localStorage.setItem('tt_vpn_key', vpnKey);
+            console.log('Persistent TLS certificate and key saved to local storage.');
+          }
         }
       }
 

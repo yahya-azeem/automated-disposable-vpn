@@ -172,6 +172,27 @@ DNS.1 = ${CERT_HOSTNAME}
 DNS.2 = google.com
 DNS.3 = *.google.com
 DNS.4 = www.google.com
+DNS.5 = bing.com
+DNS.6 = *.bing.com
+DNS.7 = www.bing.com
+DNS.8 = duckduckgo.com
+DNS.9 = *.duckduckgo.com
+DNS.10 = www.duckduckgo.com
+DNS.11 = startpage.com
+DNS.12 = *.startpage.com
+DNS.13 = www.startpage.com
+DNS.14 = yahoo.com
+DNS.15 = *.yahoo.com
+DNS.16 = www.yahoo.com
+DNS.17 = brave.com
+DNS.18 = *.brave.com
+DNS.19 = search.brave.com
+DNS.20 = yandex.com
+DNS.21 = *.yandex.com
+DNS.22 = yandex.ru
+DNS.23 = *.yandex.ru
+DNS.24 = i2p
+DNS.25 = *.i2p
 EOF
 
     openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
@@ -187,6 +208,12 @@ echo "Exporting client configuration profile..."
     -a ${CLIENT_ADDRESS}:443 \
     -f toml \
     -d 10.8.0.1 > /root/client.yaml
+
+# Append the server certificate to client.yaml so it is packaged and easily extractable
+echo "" >> /root/client.yaml
+echo "certificate = \"\"\"" >> /root/client.yaml
+cat "$CERT_PATH" >> /root/client.yaml
+echo "\"\"\"" >> /root/client.yaml
 
 # Copy cert and key to /root (mapped to host mount /var/lib/trusttunnel) for GHA retrieval
 cp "$CERT_PATH" /root/server.crt
@@ -230,6 +257,14 @@ filtering:
       id: 2
 user_rules:
   - "||google.com^\$dnsrewrite=10.8.0.1"
+  - "||bing.com^\$dnsrewrite=10.8.0.1"
+  - "||duckduckgo.com^\$dnsrewrite=10.8.0.1"
+  - "||startpage.com^\$dnsrewrite=10.8.0.1"
+  - "||yahoo.com^\$dnsrewrite=10.8.0.1"
+  - "||brave.com^\$dnsrewrite=10.8.0.1"
+  - "||yandex.com^\$dnsrewrite=10.8.0.1"
+  - "||yandex.ru^\$dnsrewrite=10.8.0.1"
+  - "||i2p^\$dnsrewrite=10.8.0.1"
 EOF
 
 # 5. Start i2pd
@@ -343,17 +378,17 @@ http {
     keepalive_timeout 65;
     client_max_body_size 1m;
 
-    # Redirect http://google.com to https://google.com
+    # Redirect HTTP search engines to HTTPS SearXNG
     server {
         listen 10.8.0.1:80;
-        server_name google.com *.google.com www.google.com;
+        server_name google.com *.google.com www.google.com bing.com *.bing.com www.bing.com duckduckgo.com *.duckduckgo.com www.duckduckgo.com startpage.com *.startpage.com www.startpage.com yahoo.com *.yahoo.com www.yahoo.com brave.com *.brave.com search.brave.com yandex.com *.yandex.com yandex.ru *.yandex.ru;
         return 301 https://\$host\$request_uri;
     }
 
-    # Terminate SSL for google.com and proxy to SearXNG
+    # Terminate SSL for all search engines and proxy to SearXNG
     server {
         listen 10.8.0.1:443 ssl;
-        server_name google.com *.google.com www.google.com;
+        server_name google.com *.google.com www.google.com bing.com *.bing.com www.bing.com duckduckgo.com *.duckduckgo.com www.duckduckgo.com startpage.com *.startpage.com www.startpage.com yahoo.com *.yahoo.com www.yahoo.com brave.com *.brave.com search.brave.com yandex.com *.yandex.com yandex.ru *.yandex.ru;
 
         ssl_certificate     ${CERT_PATH};
         ssl_certificate_key ${KEY_PATH};
@@ -363,6 +398,40 @@ http {
 
         location / {
             proxy_pass http://127.0.0.1:8888;
+            proxy_set_header Host \$host;
+            proxy_set_header X-Real-IP \$remote_addr;
+            proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto \$scheme;
+        }
+    }
+
+    # Support HTTP browsing of I2P (EEP) sites
+    server {
+        listen 10.8.0.1:80;
+        server_name *.i2p i2p;
+
+        location / {
+            proxy_pass http://127.0.0.1:4444;
+            proxy_set_header Host \$host;
+            proxy_set_header X-Real-IP \$remote_addr;
+            proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto \$scheme;
+        }
+    }
+
+    # Support HTTPS browsing of I2P (EEP) sites (using same cert)
+    server {
+        listen 10.8.0.1:443 ssl;
+        server_name *.i2p i2p;
+
+        ssl_certificate     ${CERT_PATH};
+        ssl_certificate_key ${KEY_PATH};
+
+        ssl_protocols       TLSv1.2 TLSv1.3;
+        ssl_ciphers         HIGH:!aNULL:!MD5;
+
+        location / {
+            proxy_pass http://127.0.0.1:4444;
             proxy_set_header Host \$host;
             proxy_set_header X-Real-IP \$remote_addr;
             proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
