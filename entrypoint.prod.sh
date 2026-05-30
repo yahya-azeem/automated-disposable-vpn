@@ -314,13 +314,27 @@ ui:
   hotkeys: vim
   cache_url: "https://web.archive.org/web/"
 
-outgoing:
-  request_timeout: 30.0
-  max_connection_timeout: 60.0
-
 search:
   safe_search: 0
   autocomplete: ""
+  doi_resolvers:
+    sci-hub.se: 'https://sci-hub.se/'
+    sci-hub.st: 'https://sci-hub.st/'
+    sci-hub.ru: 'https://sci-hub.ru/'
+    oadoi.org: 'https://oadoi.org/'
+    doi.org: 'https://doi.org/'
+  default_doi_resolver: 'sci-hub.se'
+
+enabled_plugins:
+  - 'Hash plugin'
+  - 'Self Information'
+  - 'Tracker URL remover'
+  - 'Ahmia blacklist'
+  - 'Open Access DOI rewrite'
+
+outgoing:
+  request_timeout: 30.0
+  max_connection_timeout: 60.0
 
 engines:
   - name: google
@@ -335,6 +349,32 @@ engines:
     disabled: false
   - name: mojeek
     disabled: false
+  - name: arxiv
+    disabled: false
+  - name: google scholar
+    disabled: false
+  - name: semanticscholar
+    disabled: false
+  - name: crossref
+    disabled: false
+  - name: base
+    disabled: false
+  - name: core
+    disabled: false
+  - name: pubmed
+    disabled: false
+  - name: 1337x
+    disabled: false
+  - name: limetorrents
+    disabled: false
+  - name: solidtorrents
+    disabled: false
+  - name: tokyotosho
+    disabled: false
+  - name: nyaa
+    disabled: false
+  - name: piratebay
+    disabled: true
 EOF
 
 echo "Starting SearXNG..."
