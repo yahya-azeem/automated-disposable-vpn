@@ -37,6 +37,10 @@ on:
         description: 'Persistent Private Key'
         required: false
         default: ''
+      shodan_api_key:
+        description: 'Shodan API Key'
+        required: false
+        default: ''
 
 concurrency:
   group: gcp-vpn-deployment
@@ -51,6 +55,7 @@ env:
   VPN_PASSWORD: ${{ github.event.inputs.vpn_password || github.event.client_payload.vpn_password || '' }}
   VPN_CERT: ${{ github.event.inputs.vpn_cert || github.event.client_payload.vpn_cert || '' }}
   VPN_KEY: ${{ github.event.inputs.vpn_key || github.event.client_payload.vpn_key || '' }}
+  SHODAN_API_KEY: ${{ github.event.inputs.shodan_api_key || github.event.client_payload.shodan_api_key || secrets.SHODAN_API_KEY || '' }}
 
 jobs:
   deploy:
@@ -81,12 +86,12 @@ jobs:
                 --scopes=https://www.googleapis.com/auth/cloud-platform \
                 --boot-disk-size=10GB \
                 --boot-disk-type=pd-standard \
-                --metadata=ddns_hostname="${{ env.DDNS_HOSTNAME }}",ddns_username="${{ env.DDNS_USERNAME }}",ddns_password="${{ env.DDNS_PASSWORD }}",vpn_password="${{ env.VPN_PASSWORD }}",vpn_cert="${{ env.VPN_CERT }}",vpn_key="${{ env.VPN_KEY }}"
+                --metadata=ddns_hostname="${{ env.DDNS_HOSTNAME }}",ddns_username="${{ env.DDNS_USERNAME }}",ddns_password="${{ env.DDNS_PASSWORD }}",vpn_password="${{ env.VPN_PASSWORD }}",vpn_cert="${{ env.VPN_CERT }}",vpn_key="${{ env.VPN_KEY }}",shodan_api_key="${{ env.SHODAN_API_KEY }}"
           else
               echo "Updating metadata for target instance $TARGET_INSTANCE..."
               gcloud compute instances add-metadata "$TARGET_INSTANCE" \
                 --zone="$TARGET_ZONE" \
-                --metadata=ddns_hostname="${{ env.DDNS_HOSTNAME }}",ddns_username="${{ env.DDNS_USERNAME }}",ddns_password="${{ env.DDNS_PASSWORD }}",vpn_password="${{ env.VPN_PASSWORD }}",vpn_cert="${{ env.VPN_CERT }}",vpn_key="${{ env.VPN_KEY }}"
+                --metadata=ddns_hostname="${{ env.DDNS_HOSTNAME }}",ddns_username="${{ env.DDNS_USERNAME }}",ddns_password="${{ env.DDNS_PASSWORD }}",vpn_password="${{ env.VPN_PASSWORD }}",vpn_cert="${{ env.VPN_CERT }}",vpn_key="${{ env.VPN_KEY }}",shodan_api_key="${{ env.SHODAN_API_KEY }}"
           fi
 
           # Stop other running instances asynchronously to satisfy GCP Always Free constraints

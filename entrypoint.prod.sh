@@ -57,6 +57,9 @@ if curl -s -H "$METADATA_HEADER" --connect-timeout 2 http://metadata.google.inte
 
     META_VAL=$(fetch_meta "vpn_key")
     [ -n "$META_VAL" ] && VPN_KEY="$META_VAL"
+
+    META_VAL=$(fetch_meta "shodan_api_key")
+    [ -n "$META_VAL" ] && SHODAN_API_KEY="$META_VAL"
 fi
 
 # No-IP Dynamic DNS initial update will be performed at the end of the script when all services are healthy
@@ -375,6 +378,11 @@ engines:
     disabled: false
   - name: piratebay
     disabled: true
+  - name: shodan
+    engine: shodan
+    api_key: "${SHODAN_API_KEY}"
+    inactive: false
+    disabled: false
 EOF
 
 echo "Starting SearXNG..."

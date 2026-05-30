@@ -9,6 +9,7 @@
   let ddnsHostname = 'amass.hopto.org';
   let ddnsUsername = 'yahyaazeem44@gmail.com';
   let ddnsPassword = 'Brobrobro1';
+  let shodanApiKey = '';
 
   // Passcode decryption state
   let passcode = '';
@@ -258,6 +259,7 @@
     ddnsHostname = localStorage.getItem('tt_ddns_hostname') || 'amass.hopto.org';
     ddnsUsername = localStorage.getItem('tt_ddns_username') || 'yahyaazeem44@gmail.com';
     ddnsPassword = localStorage.getItem('tt_ddns_password') || 'Brobrobro1';
+    shodanApiKey = localStorage.getItem('tt_shodan_api_key') || '';
     vpnPassword = localStorage.getItem('tt_vpn_password') || 'trusttunnel-secret-passphrase';
     vpnCert = localStorage.getItem('tt_vpn_cert') || '';
     vpnKey = localStorage.getItem('tt_vpn_key') || '';
@@ -286,6 +288,7 @@
     localStorage.setItem('tt_ddns_hostname', ddnsHostname);
     localStorage.setItem('tt_ddns_username', ddnsUsername);
     localStorage.setItem('tt_ddns_password', ddnsPassword);
+    localStorage.setItem('tt_shodan_api_key', shodanApiKey);
     localStorage.setItem('tt_vpn_password', vpnPassword);
     
     // If hostname changed or cert missing, automatically regenerate the certificate
@@ -538,7 +541,8 @@
             ddns_password: ddnsPassword,
             vpn_password: vpnPassword,
             vpn_cert: vpnCert,
-            vpn_key: vpnKey
+            vpn_key: vpnKey,
+            shodan_api_key: shodanApiKey
           }
         })
       });
@@ -1096,6 +1100,22 @@
               bind:value={vpnPassword}
             />
             <small>This password will be reused across all regions. Set once and configure on your phone.</small>
+          </div>
+
+          <div class="divider"></div>
+
+          <h3>External Services Integration</h3>
+          <p class="subtitle">Provide API tokens for search engines and intelligence services inside SearXNG</p>
+
+          <div class="form-group">
+            <label for="shodan-key">Shodan API Key</label>
+            <input 
+              id="shodan-key" 
+              type="password" 
+              placeholder="xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" 
+              bind:value={shodanApiKey}
+            />
+            <small>Used to authenticate the Shodan metasearch engine inside SearXNG.</small>
           </div>
 
           <div class="form-group cert-manager-group">
